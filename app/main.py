@@ -1,19 +1,21 @@
 # app/main.py
+# Start the Postgres server using docker run -d --name word_extremist_db -e POSTGRES_USER=backend -e POSTGRES_PASSWORD=password -e POSTGRES_DB=word_extremist_db -p 5432:5432 -v pgdata:/var/lib/postgresql/data postgres:15
+# Start backend using uvicorn app.main:app --reload --host 0.0.0.0
 from fastapi import FastAPI
 from fastapi.routing import APIRoute, APIWebSocketRoute, Mount
 from app.core.config import settings
-from app.api import auth as auth_router
+from app.api import admin as admin_router
 from app.api import game_data as game_data_router
 from app.api import websockets as websocket_router
 from app.api import matchmaking as matchmaking_router
-# from app.db.base import Base # For initial table creation if not using Alembic
-# from app.db.session import engine
+from app.db.base import Base # For initial table creation if not using Alembic
+from app.db.session import engine
 
 # If using Alembic, you don't need this here.
 # For simple setup, you can create tables like this (run once):
-# def create_tables():
-#    Base.metadata.create_all(bind=engine)
-# create_tables()
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+create_tables()
 
 
 app = FastAPI(
@@ -23,10 +25,10 @@ app = FastAPI(
 
 # Include Routers
 #app.include_router(auth_router.router, prefix=settings.API_V1_STR + "/auth", tags=["Auth"])
+app.include_router(admin_router.router, prefix="/admin", include_in_schema=False)  # Admin routes are not in OpenAPI schema
 app.include_router(matchmaking_router.router, prefix=settings.API_V1_STR + "/matchmaking", tags=["Matchmaking"])
 app.include_router(game_data_router.router, prefix=settings.API_V1_STR + "/game-content", tags=["Game Content"])
 app.include_router(websocket_router.router, tags=["Game Sockets"]) # WebSockets usually don't have API prefix
-
 
 # --- Add this block for debugging ---
 print("\n--- FastAPI Registered Routes ---")

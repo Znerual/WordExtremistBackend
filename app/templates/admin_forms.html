@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Add Sentence Prompt</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
+        h1, h2 { color: #333; text-align: center; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="text"], textarea {
+            width: calc(100% - 22px); /* Account for padding and border */
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea { min-height: 80px; }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background-color: #0056b3; }
+        .message {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        ul { list-style-type: none; padding: 0; }
+        li { background-color: #e9ecef; margin-bottom: 10px; padding: 10px; border-radius: 4px; }
+        li strong { display: block; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Admin Panel</h1>
+
+        {% if message %}
+            <div class="message {{ 'success' if success else 'error' }}">
+                {{ message }}
+            </div>
+        {% endif %}
+
+        <h2>Add New Sentence Prompt</h2>
+        <form action="/admin/add-sentence-prompt" method="post">
+            <div>
+                <label for="sentence_text">Full Sentence:</label>
+                <textarea id="sentence_text" name="sentence_text" required></textarea>
+            </div>
+            <div>
+                <label for="target_word">Word to Replace (Target Word):</label>
+                <input type="text" id="target_word" name="target_word" required>
+            </div>
+            <div>
+                <label for="prompt_text">Prompt Text (e.g., "BE MORE EXTREME"):</label>
+                <input type="text" id="prompt_text" name="prompt_text" required>
+            </div>
+            <div>
+                <label for="difficulty">Difficulty (1-5, optional):</label>
+                <input type="number" id="difficulty" name="difficulty" min="1" max="5" value="1">
+            </div>
+            <button type="submit">Add Prompt</button>
+        </form>
+
+        <h2>Existing Sentence Prompts (Last 5)</h2>
+        {% if prompts %}
+            <ul>
+                {% for prompt in prompts %}
+                    <li>
+                        <strong>Sentence:</strong> {{ prompt.sentence_text }}<br>
+                        <strong>Target:</strong> {{ prompt.target_word }}<br>
+                        <strong>Prompt:</strong> {{ prompt.prompt_text }}<br>
+                        <strong>Difficulty:</strong> {{ prompt.difficulty }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No sentence prompts found.</p>
+        {% endif %}
+    </div>
+</body>
+</html>

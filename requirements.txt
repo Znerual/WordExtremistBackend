@@ -16,3 +16,5 @@ pytest
 pytest-mock
 pytest-asyncio
 httpx
+jinja2
+python-multipart

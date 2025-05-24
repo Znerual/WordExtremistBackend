@@ -6,11 +6,12 @@ from app.schemas.game_content import SentencePrompt
 def get_random_sentence_prompt(db: Session) -> SentencePrompt | None:
     return db.query(SentencePrompt).order_by(func.random()).first()
 
-def create_sentence_prompt(db: Session, sentence_text: str, target_word: str, prompt_text: str):
+def create_sentence_prompt(db: Session, sentence_text: str, target_word: str, prompt_text: str, difficulty: int = 1):
     db_item = SentencePrompt(
         sentence_text=sentence_text,
         target_word=target_word,
-        prompt_text=prompt_text
+        prompt_text=prompt_text,
+        difficulty=difficulty
     )
     db.add(db_item)
     db.commit()

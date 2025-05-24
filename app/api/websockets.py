@@ -58,6 +58,7 @@ class GameConnectionManager:
     async def send_to_player(self, game_id: str, user_id: int, message: dict): # Use user_id (int)
         if game_id in self.active_connections and user_id in self.active_connections[game_id]:
             connection = self.active_connections[game_id][user_id]
+            print("Sending message to player", user_id, "in game", game_id, ":", message.get("type"))
             await self._send_json_safe(connection, message, user_id, game_id) # Pass user_id
 
     async def _send_json_safe(self, connection: WebSocket, message: dict, user_id: int, game_id: str): # Use user_id (int)
@@ -128,52 +129,127 @@ async def game_websocket(
                 # --- End Sentence Selection ---
 
                 # --- Construct Full Initial Game State ---
-                player_ids = current_game_info["players"] # List of integer IDs [id1, id2]
-                player1_id = player_ids[0]
-                player2_id = player_ids[1]
-                # Get player details stored temporarily during matchmaking
-                p1_details = UserPublic(**current_game_info["player_details"][player1_id])
-                p2_details = UserPublic(**current_game_info["player_details"][player2_id])
+                player_ids_from_matchmaking = current_game_info["players"] # List of int IDs [id1, id2]
+                p1_server_id = player_ids_from_matchmaking[0] # This is the actual server ID for player 1
+                p2_server_id = player_ids_from_matchmaking[1] # This is the actual server ID for player 2
 
-                initial_game_state_dict = {
+                p1_details = UserPublic(**current_game_info["player_details"][p1_server_id])
+                p2_details = UserPublic(**current_game_info["player_details"][p2_server_id])
+
+                # Prepare player state objects as expected by the client's GameStatePlayer
+                player1_game_state_player = GameStatePlayer(
+                    id=p1_server_id, # Use the server ID
+                    name=p1_details.username or f"Player {p1_server_id}",
+                    score=0,
+                    mistakes_in_current_round=0,
+                    words_played=[]
+                ).model_dump()
+
+                player2_game_state_player = GameStatePlayer(
+                    id=p2_server_id, # Use the server ID
+                    name=p2_details.username or f"Player {p2_server_id}",
+                    score=0,
+                    mistakes_in_current_round=0,
+                    words_played=[]
+                ).model_dump()
+
+                initial_game_state_dict_for_service = { # This is for internal service storage
                     "game_id": game_id,
-                    "players": { # Dict keyed by integer ID
-                        player1_id: GameStatePlayer(id=player1_id, name=p1_details.username or f"Player {player1_id}", score=0, mistakes_in_current_round=0, words_played=[]).model_dump(),
-                        player2_id: GameStatePlayer(id=player2_id, name=p2_details.username or f"Player {player2_id}", score=0, mistakes_in_current_round=0, words_played=[]).model_dump(),
+                    "players": { # Stored by server ID
+                        p1_server_id: player1_game_state_player,
+                        p2_server_id: player2_game_state_player,
                     },
                     "status": "in_progress",
-                    "current_player_id": player1_id, # Player 1 starts
+                    "current_player_id": p1_server_id,
                     "current_round": 1,
-                    "max_rounds": 3, # Define default or get from config
+                    "max_rounds": 3,
                     "sentence_prompt": sentence_prompt_pydantic.model_dump(),
                     "words_played_this_round_all": [],
-                    "is_waiting_for_opponent": False,
+                    "is_waiting_for_opponent": False, # Game is active now
                     "last_action_timestamp": time.time(),
                 }
-                # --- End State Construction ---
+                matchmaking_service.update_game_state(game_id, initial_game_state_dict_for_service)
 
-                # Persist the full state (replaces basic info in active_games)
-                matchmaking_service.update_game_state(game_id, initial_game_state_dict)
-                # Clean up temporary player details
-                # del current_game_info["player_details"] # No need if update_game_state replaces
+                # --- CORRECTED PAYLOAD FOR CLIENT ---
+                client_payload = {
+                    "game_id": game_id,
+                    "current_sentence": sentence_prompt_pydantic.sentence_text,
+                    "prompt": sentence_prompt_pydantic.prompt_text,
+                    "word_to_replace": sentence_prompt_pydantic.target_word,
+                    "round": initial_game_state_dict_for_service["current_round"],
 
-                # --- Broadcast 'game_start' with formatted payload ---
+                    # --- ADD THESE LINES ---
+                    "player1_server_id": str(p1_server_id), # Convert to string if IDs are int
+                    "player2_server_id": str(p2_server_id), # Convert to string if IDs are int
+                    # --- END ADDED LINES ---
+
+                    "player1_state": player1_game_state_player, # The GameStatePlayer model_dump()
+                    "player2_state": player2_game_state_player, # The GameStatePlayer model_dump()
+
+                    "current_player_id": str(initial_game_state_dict_for_service["current_player_id"]), # Send string ID
+                    "player1_words": player1_game_state_player["words_played"],
+                    "player2_words": player2_game_state_player["words_played"],
+                    "game_active": True # Explicitly tell client the game is active
+                }
+
                 await game_manager.broadcast_to_game(game_id, {
                     "type": "game_start",
-                    "payload": {
-                         "game_id": game_id,
-                         "current_sentence": sentence_prompt_pydantic.sentence_text,
-                         "prompt": sentence_prompt_pydantic.prompt_text,
-                         "word_to_replace": sentence_prompt_pydantic.target_word,
-                         "round": initial_game_state_dict["current_round"],
-                         "player1_state": initial_game_state_dict["players"][player1_id], # Send player state dict
-                         "player2_state": initial_game_state_dict["players"][player2_id],
-                         "current_player_id": initial_game_state_dict["current_player_id"], # Send integer ID
-                         "player1_words": initial_game_state_dict["players"][player1_id]["words_played"],
-                         "player2_words": initial_game_state_dict["players"][player2_id]["words_played"],
-                    }
+                    "payload": client_payload # Use the corrected payload
                 })
+                print(f"Game {game_id} started. Broadcasting initial state with player server IDs.")
                 print(f"Game {game_id} started. Broadcasting initial state.")
+
+            elif game_status == "in_progress":
+                print(f"Player {player_id} reconnected to game {game_id} in progress. Sending current state.")
+                current_full_state = matchmaking_service.get_full_game_state(game_id)
+                # ... (error handling for current_full_state) ...
+
+                # Ensure player IDs are present and correctly fetched
+                server_player_ids_from_state = list(current_full_state["players"].keys())
+                if len(server_player_ids_from_state) < 2:
+                    print(f"Error: Game state for {game_id} has less than 2 player IDs: {server_player_ids_from_state}")
+                    await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Corrupt game state (player IDs)")
+                    return
+
+                # It's safer to not assume order if you just get keys. Determine p1_id and p2_id
+                # based on some convention or ensure they are stored consistently.
+                # For now, assuming the client can handle whatever IDs are in player1_state/player2_state fields
+                # as long as player1_server_id and player2_server_id are also present.
+                # Let's assume the order from matchmaking is preserved in current_full_state["players"] keys.
+                # Or, better, if current_game_info still has the original player list.
+                original_player_order = matchmaking_service.get_game_info(game_id)["players"] # Fetch original order
+                p1_server_id_reconnect = original_player_order[0]
+                p2_server_id_reconnect = original_player_order[1]
+
+
+                current_prompt = SentencePromptPublic(**current_full_state["sentence_prompt"])
+
+                # --- CORRECTED PAYLOAD FOR RECONNECT ---
+                reconnect_payload = {
+                    "game_id": game_id,
+                    "current_sentence": current_prompt.sentence_text,
+                    "prompt": current_prompt.prompt_text,
+                    "word_to_replace": current_prompt.target_word,
+                    "round": current_full_state["current_round"],
+
+                    # --- ADD THESE LINES ---
+                    "player1_server_id": str(p1_server_id_reconnect),
+                    "player2_server_id": str(p2_server_id_reconnect),
+                    # --- END ADDED LINES ---
+
+                    "player1_state": current_full_state["players"][p1_server_id_reconnect],
+                    "player2_state": current_full_state["players"][p2_server_id_reconnect],
+
+                    "current_player_id": str(current_full_state["current_player_id"]),
+                    "player1_words": current_full_state["players"][p1_server_id_reconnect]["words_played"],
+                    "player2_words": current_full_state["players"][p2_server_id_reconnect]["words_played"],
+                    "game_active": True
+                }
+
+                await game_manager.send_to_player(game_id, player_id, {
+                    "type": "game_state",
+                    "payload": reconnect_payload # Use the corrected payload
+                })
             else:
                 print(f"Player {player_id} connected, waiting for opponent in game {game_id}.")
                 await game_manager.send_to_player(game_id, player_id, {"type": "status", "message": "Waiting for opponent to connect..."})
@@ -215,7 +291,7 @@ async def game_websocket(
             data = await websocket.receive_json()
             print(f"Received action from {player_id} in game {game_id}: {data}") # Use integer ID
 
-            action_type = data.get("type")
+            action_type = data.get("action_type")
             payload = data.get("payload", {})
             if not action_type:
                  await game_manager.send_to_player(game_id, player_id, {"type": "error", "message": "Invalid action format: 'type' missing."})
@@ -258,7 +334,7 @@ async def game_websocket(
                 )
 
                 if is_valid_replacement:
-                    current_game_state_dict["players"][player_id]["words_played"].append(payload.get("word")) # Store original case maybe
+                    current_game_state_dict["players"][player_id]["words_played"].append(word) # Store original case maybe
                     current_game_state_dict["words_played_this_round_all"].append(word)
                     await game_manager.send_to_player(game_id, player_id, {"type": "validation_result", "payload": {"word": word, "is_valid": True, "message": "Good word!"}})
 
@@ -271,25 +347,77 @@ async def game_websocket(
                     current_game_state_dict["last_action_timestamp"] = time.time()
                     matchmaking_service.update_game_state(game_id, current_game_state_dict)
 
-                    # Broadcast updated state
-                    p1_id, p2_id = all_player_ids[0], all_player_ids[1] # Ensure correct order based on keys
-                    await game_manager.broadcast_to_game(game_id, {
-                        "type": "game_state",
-                         "payload": {
-                             "current_player_id": current_game_state_dict["current_player_id"],
-                             "player1_state": current_game_state_dict["players"][p1_id],
-                             "player2_state": current_game_state_dict["players"][p2_id],
-                             "player1_words": current_game_state_dict["players"][p1_id]["words_played"],
-                             "player2_words": current_game_state_dict["players"][p2_id]["words_played"],
-                         }
-                    })
+                    # # Broadcast updated state
+                    # all_player_ids_in_state = list(current_game_state_dict["players"].keys()) # These are the server IDs
+                    # original_player_order_broadcast = matchmaking_service.get_game_info(game_id)["players"] # Fetch original order for consistent p1/p2
+                    # p1_id_broadcast = original_player_order_broadcast[0]
+                    # p2_id_broadcast = original_player_order_broadcast[1]
+
+
+                    # broadcast_payload = {
+                    #     "current_player_id": str(current_game_state_dict["current_player_id"]),
+                    #     "player1_server_id": str(p1_id_broadcast), # Add this
+                    #     "player2_server_id": str(p2_id_broadcast), # Add this
+                    #     "player1_state": current_game_state_dict["players"][p1_id_broadcast],
+                    #     "player2_state": current_game_state_dict["players"][p2_id_broadcast],
+                    #     "player1_words": current_game_state_dict["players"][p1_id_broadcast]["words_played"],
+                    #     "player2_words": current_game_state_dict["players"][p2_id_broadcast]["words_played"],
+                    #     "game_active": True, # Add this
+                    #     # You might also need to send round, sentence, prompt if they can change mid-game by server
+                    #     "round": current_game_state_dict["current_round"],
+                    #     # current_sentence, prompt, word_to_replace usually don't change mid-round
+                    # }
+                    # current_sent_prompt_obj = SentencePromptPublic(**current_game_state_dict["sentence_prompt"])
+                    # broadcast_payload["current_sentence"] = current_sent_prompt_obj.sentence_text
+                    # broadcast_payload["prompt"] = current_sent_prompt_obj.prompt_text
+                    # broadcast_payload["word_to_replace"] = current_sent_prompt_obj.target_word
+
+
+                    # await game_manager.broadcast_to_game(game_id, {
+                    #     "type": "game_state",
+                    #     "payload": broadcast_payload
+                    # })
+
+                    original_player_order_broadcast = matchmaking_service.get_game_info(game_id)["players"]
+                    p1_id_for_payload = original_player_order_broadcast[0]
+                    p2_id_for_payload = original_player_order_broadcast[1]
+
+                    turn_change_payload = {
+                        "opponent_played_word": word, # The word the other player submitted
+                        "opponent_word_is_valid": True, # Since we are in this block
+                        "game_id": game_id, # Redundant but can be useful
+                        "current_sentence": prompt_obj.sentence_text,
+                        "prompt": prompt_obj.prompt_text,
+                        "word_to_replace": prompt_obj.target_word,
+                        "round": current_game_state_dict["current_round"],
+
+                        # Full state needed for the player whose turn it now is
+                        "player1_server_id": str(p1_id_for_payload),
+                        "player2_server_id": str(p2_id_for_payload),
+                        "player1_state": current_game_state_dict["players"][p1_id_for_payload],
+                        "player2_state": current_game_state_dict["players"][p2_id_for_payload],
+                        "current_player_id": str(next_player_id), # Crucially, this is the ID of the recipient
+                        "player1_words": current_game_state_dict["players"][p1_id_for_payload]["words_played"],
+                        "player2_words": current_game_state_dict["players"][p2_id_for_payload]["words_played"],
+                        "game_active": True
+                    }
+
+                    await game_manager.send_to_player(
+                        game_id,
+                        next_player_id, # Send ONLY to the player whose turn it now is
+                        {
+                            "type": "opponent_turn_ended", # New message type
+                            "payload": turn_change_payload
+                        }
+                    )
+                    print(f"Sent opponent_turn_ended to player {next_player_id} after {player_id} played '{word}'")
 
                 else: # Invalid word - Mistake
                     current_game_state_dict["players"][player_id]["mistakes_in_current_round"] += 1
                     mistakes = current_game_state_dict["players"][player_id]["mistakes_in_current_round"]
                     await game_manager.send_to_player(game_id, player_id, {"type": "validation_result", "payload": {"word": word, "is_valid": False, "message": "Not a valid replacement. Mistake!"}})
                     if mistakes >= game_service.MAX_MISTAKES: pass # TODO: Handle Round Over
-                    else: pass # TODO: Broadcast state update
+                    
                     matchmaking_service.update_game_state(game_id, current_game_state_dict)
 
             elif action_type == "send_emoji":

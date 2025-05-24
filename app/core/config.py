@@ -5,7 +5,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Word Extremist Backend"
     API_V1_STR: str = "/api/v1"
-    DATABASE_URL: str = "postgresql://user:password@host:port/dbname"
+    POSTGRES_DATABASE_URL: str = "postgresql://postgres:1234@localhost:5432/word_extremist_db"
     GOOGLE_CLIENT_ID: str = "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com" # From Google Cloud Console
 
     GOOGLE_WEB_CLIENT_SECRET: str = "YOUR_WEB_OAUTH_CLIENT_SECRET"
@@ -20,3 +20,9 @@ def get_settings():
     return Settings()
 
 settings = get_settings()
+
+# --- ADD THIS DEBUG PRINT ---
+print("--- DEBUG: Loaded Settings ---")
+print(f"DATABASE_URL from settings: {settings.POSTGRES_DATABASE_URL}")
+print(f"PROJECT_NAME from settings: {settings.PROJECT_NAME}") # Just to see if other .env vars load
+print("--- END DEBUG ---")

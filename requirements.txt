@@ -6,7 +6,7 @@ pydantic_settings
 websockets
 sqlalchemy 
 psycopg2-binary
-passlib[bcrypt] 
+bcrypt
 python-jose[cryptography]
 google-auth
 google-auth-oauthlib
@@ -19,3 +19,4 @@ httpx
 jinja2
 python-multipart
 alembic
+python-jose[cryptography]

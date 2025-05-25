@@ -10,6 +10,19 @@ def get_user(db: Session, user_id: int) -> User | None:
 def get_user_by_client_provided_id(db: Session, client_id: str) -> User | None:
     return db.query(User).filter(User.client_provided_id == client_id).first()
 
+def create_user_for_device_login(db: Session, client_id: str, hashed_password_val: str, username: str) -> User:
+    db_user = User(
+        client_provided_id=client_id,
+        play_games_player_id=client_id,  # Assuming client_provided_id is used as play_games_player_id
+        hashed_password=hashed_password_val,
+        username=username,
+        is_active=True
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
 def create_user_with_client_provided_id(db: Session, user_in: GetOrCreateUserRequest) -> User:
     default_username = user_in.username or f"Player_{user_in.client_provided_id[:8]}"
     

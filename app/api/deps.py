@@ -66,16 +66,47 @@ async def get_current_user_from_backend_jwt( # Renamed for clarity
     token: str = Depends(oauth2_scheme), # Expects your backend-issued JWT
     db: Session = Depends(get_db)
 ) -> UserPublic:
-    payload = await security.verify_backend_token(token) # Verify your backend's JWT
-    pgs_player_id: str = payload.get("sub") # Assuming you store pgs_player_id as 'sub' in your JWT
-    if pgs_player_id is None:
-        raise HTTPException(status_code=401, detail="Invalid token: subject missing")
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
-    user = crud_user.get_user_by_play_games_player_id(db, play_games_player_id=pgs_player_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
-    return UserPublic.model_validate(user)
+    try:
+        payload = await security.verify_backend_token(token)
+        user_id_str: str | None = payload.get("sub") # Expect user.id as string
+
+        if user_id_str is None:
+            raise credentials_exception
+        
+        try:
+            user_db_id = int(user_id_str)
+        except ValueError:
+            print(f"Invalid user ID format in token 'sub': {user_id_str}")
+            raise credentials_exception
+
+        user = crud_user.get_user(db, user_id=user_db_id)
+        if user is None:
+            # This implies a valid token was issued for a user that no longer exists,
+            # or a token from another environment. This is an anomaly.
+            print(f"User with DB ID {user_db_id} from valid token not found in database.")
+            raise HTTPException(status_code=404, detail="User from token not found")
+
+        if not user.is_active:
+            raise HTTPException(status_code=400, detail="Inactive user")
+        
+        # Optionally, verify client_provided_id if it's also in the token
+        # token_cpid = payload.get("cpid")
+        # if token_cpid and user.client_provided_id != token_cpid:
+        #     print("Client Provided ID in token does not match user's record.")
+        #     raise credentials_exception
+
+        return UserPublic.model_validate(user)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Unexpected error in get_current_user_from_backend_jwt: {e}")
+        raise credentials_exception
+
 
 get_current_active_user = get_current_user_from_backend_jwt

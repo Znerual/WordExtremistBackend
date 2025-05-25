@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     # PLAY_GAMES_PROJECT_ID: str = "YOUR_PGS_PROJECT_ID_NUMERIC"
     REDIRECT_URI: str = "postmessage" # Often "postmessage" for this flow, or a configured one if needed
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    JWT_SECRET_KEY: str = "your-super-secret-and-long-random-string-for-jwt-CHANGE-THIS-IMMEDIATELY" 
+    JWT_ALGORITHM: str = "HS256"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 @lru_cache()

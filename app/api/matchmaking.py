@@ -28,7 +28,7 @@ player_match_status: dict[int, MatchmakingStatusResponse] = {}
 @router.get("/find", response_model=MatchmakingStatusResponse)
 async def find_match(
     # Simulate client sending its ID and username - replace with auth in real app
-    user_id: int = Query(..., description="Temporary user ID for player seeking match"),
+    current_user: UserPublic = Depends(deps.get_current_active_user), # USE AUTHENTICATED USER
     db: Session = Depends(deps.get_db)
 ):
     """
@@ -40,6 +40,7 @@ async def find_match(
 
     # Fetch user details from DB using the provided user_id to ensure it's valid
     # and to get their actual username, etc.
+    user_id = current_user.id # Get the ID from the authenticated user object
     current_user_from_db = crud_user.get_user(db, user_id=user_id)
     if not current_user_from_db:
         raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found. Please register first via /user/get-or-create.")
@@ -88,10 +89,11 @@ async def find_match(
 
 @router.post("/cancel")
 async def cancel_matchmaking(
-     user_id: int = Query(..., description="User ID to remove from matchmaking")
+    current_user: UserPublic = Depends(deps.get_current_active_user), # USE AUTHENTICATED USER
 ):
     """ Allows a player to cancel their matchmaking request """
     global player_match_status
+    user_id = current_user.id
     matchmaking_service.remove_player_from_matchmaking_pool(user_id)
     if user_id in player_match_status:
         del player_match_status[user_id]

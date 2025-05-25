@@ -1,9 +1,11 @@
 # app/core/security.py
+from datetime import datetime, timedelta, timezone
 from typing import Tuple
+from jose import jwt, JWTError
 from fastapi import HTTPException, status
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
-
+import bcrypt
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google_auth_oauthlib.flow import Flow # For exchanging auth code
@@ -16,6 +18,34 @@ from app.core.config import settings
 # However, id_token.verify_oauth2_token is generally preferred as it handles more.
 
 GOOGLE_REQUEST_SESSION = google_requests.Request() # Re-use a session for requests
+
+def get_password_hash(password: str) -> str:
+    """Hashes a password using bcrypt."""
+    # Generate a salt and hash the password
+    # bcrypt.gensalt() creates a new salt for each password, which is good practice.
+    # The salt is embedded within the resulting hash string.
+    password_bytes = password.encode('utf-8') # bcrypt works with bytes
+    hashed_bytes = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
+    return hashed_bytes.decode('utf-8') # Store the hash as a string
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifies a plain password against a stored bcrypt hash."""
+    plain_password_bytes = plain_password.encode('utf-8')
+    
+    # --- DEBUGGING ---
+    print(f"DEBUG: Hashed password string from DB: '{hashed_password}' (type: {type(hashed_password)})")
+    hashed_password_bytes = hashed_password.encode('utf-8')
+    print(f"DEBUG: Hashed password bytes for checkpw: {hashed_password_bytes!r} (type: {type(hashed_password_bytes)})") 
+    # !r shows the byte representation
+    # --- END DEBUGGING ---
+
+    try:
+        return bcrypt.checkpw(plain_password_bytes, hashed_password_bytes)
+    except ValueError as e:
+        print(f"DEBUG: ValueError in bcrypt.checkpw: {e}")
+        print(f"DEBUG:   plain_password_bytes: {plain_password_bytes!r}")
+        print(f"DEBUG:   hashed_password_bytes: {hashed_password_bytes!r}")
+        raise # re-raise the exception
 
 async def verify_google_id_token(token: str) -> dict:
     """
@@ -162,19 +192,42 @@ async def exchange_google_auth_code(auth_code: str) -> Tuple[str | None, str | N
         # Log the error details
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid Google auth code or server error: {str(e)}")
 
-# --- If you decide to issue your OWN JWT after Google validation (Optional but Recommended) ---
-# from datetime import datetime, timedelta, timezone
-# from jose import jwt # No longer python-jose for this, just jose
-#
-# def create_backend_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-#     to_encode = data.copy()
-#     if expires_delta:
-#         expire = datetime.now(timezone.utc) + expires_delta
-#     else:
-#         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES) # Use your own expiry
-#     to_encode.update({"exp": expire, "iss": "your_backend_issuer_name"}) # Add your issuer
-#     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-#     return encoded_jwt
-#
-# async def verify_backend_token(token: str) -> dict:
-#     # Similar to verify_token_pydantic from previous example, but for your own tokens
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    # Add 'iss' (issuer) and 'aud' (audience) for better token validation if desired
+    # to_encode.update({"iss": "your_backend_name", "aud": "your_client_audience"})
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM) # Use your actual key/algo from settings
+    return encoded_jwt
+
+async def verify_backend_token(token: str) -> dict:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate backend token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        # Use the jwt object to decode
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            # options={"verify_aud": False, "verify_iss": False} # If you don't set/check audience/issuer
+        )
+        # Example: Check for expiration, which decode() handles by default
+        # You could add more checks here like 'iss' or 'aud' if you set them during creation.
+        # if payload.get("iss") != "your_project_name_or_url":
+        #     raise JWTError("Invalid issuer")
+            
+        return payload
+    except JWTError as e: # Catches errors from jwt.decode (e.g., signature expired, invalid signature)
+        print(f"JWTError during backend token verification: {e}")
+        raise credentials_exception
+    except Exception as e: # Catch any other unexpected errors
+        print(f"Unexpected error verifying backend token: {e}")
+        raise credentials_exception

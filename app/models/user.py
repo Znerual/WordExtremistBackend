@@ -22,6 +22,7 @@ class UserUpdate(BaseModel): # For user to update their editable profile info
 class UserInDBBase(UserBase):
     id: int # Your internal ID
     play_games_player_id: str | None = None # << Add/Ensure this exists and is optional
+    client_provided_id: Optional[str] = None # Add if missing, make Optional if not always present
     is_active: bool
     created_at: datetime
     last_login_at: datetime | None = None
@@ -31,6 +32,10 @@ class UserInDBBase(UserBase):
 
 class UserPublic(UserInDBBase):
     pass
+
+class DeviceLoginRequest(BaseModel):
+    client_provided_id: str
+    client_generated_password: str
 
 # Token model for your *own* backend-issued JWT (if you choose to issue one after Google validation)
 class BackendToken(BaseModel):

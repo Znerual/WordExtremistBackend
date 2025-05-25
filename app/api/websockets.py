@@ -1,6 +1,6 @@
 	  
 # app/api/websockets.py
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, status, Query
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, status, Query
 from starlette.websockets import WebSocketState
 from sqlalchemy.orm import Session
 from typing import Dict, List
@@ -86,10 +86,21 @@ game_manager = GameConnectionManager()
 async def game_websocket_endpoint( # Renamed to avoid conflict with game_websocket var
 	websocket: WebSocket,
 	game_id: str,
-	user_id: int = Query(..., description="User ID matching the one used in matchmaking"),
+	token: str = Query(..., description="User's JWT for authentication"), # Authenticate via JWT
 	db: Session = Depends(deps.get_db)
 ):
-	player_id_of_this_connection = user_id
+	try:
+		# Authenticate the user via the token
+		# You might need to adapt get_current_user_from_backend_jwt or create a similar sync version
+		# if it's called directly, or handle the async nature.
+		# For simplicity, let's assume a helper that can be awaited:
+		current_user = await deps.get_current_user_from_backend_jwt(token=token, db=db) # Pass db if needed by dep
+		player_id_of_this_connection = current_user.id
+		print(f"WS Connection attempt: User DB ID:{player_id_of_this_connection} (CPID: {current_user.client_provided_id}) for G:{game_id}")
+	except HTTPException as auth_exc:
+		print(f"WS Auth failed for G:{game_id}: {auth_exc.detail}")
+		await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Authentication failed: {auth_exc.detail}")
+		return
 	print(f"Connection attempt: P:{player_id_of_this_connection} G:{game_id}")
 
 	matchmaking_game_info = matchmaking_service.get_game_info(game_id)

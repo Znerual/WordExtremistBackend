@@ -5,8 +5,9 @@ from pydantic import BaseModel
 
 from app.api import deps
 from app.core import security
-from app.models.user import BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle
+from app.models.user import DeviceLoginRequest, BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle
 from app.crud import crud_user
+from app.core.security import get_password_hash, verify_password, create_access_token
 from app.core.security import verify_google_id_token
 from app.core.config import settings
 from datetime import datetime, timedelta, timezone
@@ -19,37 +20,64 @@ class GoogleIdTokenRequest(BaseModel): # Renamed for clarity
     google_id_token: str
 
 
-@router.post("/user/get-or-create", response_model=UserPublic)
-async def get_or_create_user_by_client_id(
-    request_data: GetOrCreateUserRequest,
+@router.post("/device-login", response_model=BackendToken)
+async def login_with_device_credentials(
+    request_data: DeviceLoginRequest,
     db: Session = Depends(deps.get_db)
 ):
-    """
-    Retrieves a user by their client_provided_id.
-    If the user doesn't exist, a new one is created with this ID.
-    Returns the full UserPublic object, including the database ID.
-    """
-    if not request_data.client_provided_id:
-        raise HTTPException(status_code=400, detail="client_provided_id is required.")
+    if not request_data.client_provided_id or not request_data.client_generated_password:
+        raise HTTPException(status_code=400, detail="Client ID and password are required.")
 
     user = crud_user.get_user_by_client_provided_id(db, client_id=request_data.client_provided_id)
 
     if not user:
-        print(f"User with client_provided_id '{request_data.client_provided_id}' not found. Creating new user.")
-        user = crud_user.create_user_with_client_provided_id(db, user_in=request_data)
-        print(f"Created new user: {user.username} (DB ID: {user.id}, Client ID: {user.client_provided_id})")
-    else:
-        # User exists, update last_login_at or other details if needed
-        user.last_login_at = datetime.now(timezone.utc)
-        if request_data.username and user.username != request_data.username:
-            # Optionally update username if client provides a new one and you allow it
-            # user.username = request_data.username 
-            pass
-        db.commit()
-        db.refresh(user)
-        print(f"Found existing user: {user.username} (DB ID: {user.id}, Client ID: {user.client_provided_id})")
+        # --- User Registration Case ---
+        print(f"Device ID {request_data.client_provided_id} not found. Registering new user.")
+        hashed_password = get_password_hash(request_data.client_generated_password)
+        
+        # We need a username. Client doesn't send it in this request.
+        # Generate a default one. The client could update it later if you build that feature.
+        default_username = f"User_{request_data.client_provided_id[:8]}"
+        
+        try:
+            user = crud_user.create_user_for_device_login(db, 
+                client_id=request_data.client_provided_id,
+                hashed_password_val=hashed_password,
+                username=default_username
+            )
+        except Exception as e: # Catch potential IntegrityError if client_provided_id somehow got duplicated
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Could not register user. Possible duplicate ID. Error: {e}")
+    
+    elif not user.hashed_password or not verify_password(request_data.client_generated_password, user.hashed_password):
+        # --- Login Failed Case ---
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect client ID or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # --- Login Successful or Registration Successful ---
+    user.last_login_at = datetime.now(timezone.utc) # Update last login
+    db.commit()
+    db.refresh(user)
 
-    return UserPublic.model_validate(user)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    # The 'sub' of your JWT will be the client_provided_id for this scheme.
+    # Or you could use user.id (database primary key) as 'sub' for consistency if other auth methods use it.
+    # Let's use user.id (database PK) as 'sub' to be consistent with potential future auth methods.
+    # Include client_provided_id in the token payload if client needs it.
+    jwt_payload_data = {"sub": str(user.id), "cpid": user.client_provided_id}
+    
+    access_token = create_access_token(
+        data=jwt_payload_data, expires_delta=access_token_expires
+    )
+    return BackendToken(access_token=access_token, token_type="bearer")
+
+# --- REMOVE or DEACTIVATE the old /user/get-or-create endpoint ---
+# It's now superseded by /device-login
+# @router.post("/user/get-or-create", response_model=UserPublic) ...
+
 
 @router.post("/pgs-login", response_model=BackendToken) # Client sends Server Auth Code
 async def login_with_play_games_server_auth_code(

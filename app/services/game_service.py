@@ -274,8 +274,14 @@ def process_player_game_action(
         # 2. Validate word against prompt
         prompt_obj = SentencePromptPublic(**current_game_state["sentence_prompt"])
         is_valid_replacement = validate_word_against_prompt(
-            word, prompt_obj.target_word, prompt_obj.prompt_text, prompt_obj.sentence_text
+            db=db,
+            word=word,
+            sentence_prompt_id=sentence_prompt_db_id,
+            target_word=prompt_obj.target_word,
+            prompt_text=prompt_obj.prompt_text,
+            sentence_text=prompt_obj.sentence_text
         )
+
 
         if db_game_id_for_logging and sentence_prompt_db_id:
             try:
@@ -311,8 +317,9 @@ def process_player_game_action(
             current_game_state["players"][acting_player_id]["mistakes_in_current_round"] += 1
             mistakes = current_game_state["players"][acting_player_id]["mistakes_in_current_round"]
             current_game_state["last_action_timestamp"] = time.time()
+            other_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": "Not a valid replacement. Mistake!"}, target_player_id=acting_player_id))
-            events.append(GameEvent(event_type="opponent_mistake", payload={"player_id": str(acting_player_id), "mistakes": mistakes}, target_player_id=next_player_id))
+            events.append(GameEvent(event_type="opponent_mistake", payload={"player_id": str(acting_player_id), "mistakes": mistakes}, target_player_id=other_player_id))
             if mistakes >= MAX_MISTAKES:
                 current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, "invalid_word_max_mistakes", db)
                 events.extend(round_game_over_events)

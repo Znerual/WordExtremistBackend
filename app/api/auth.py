@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.api import deps
 from app.core import security
-from app.models.user import BackendToken, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle
+from app.models.user import BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle
 from app.crud import crud_user
 from app.core.security import verify_google_id_token
 from app.core.config import settings
@@ -17,6 +17,39 @@ router = APIRouter()
 
 class GoogleIdTokenRequest(BaseModel): # Renamed for clarity
     google_id_token: str
+
+
+@router.post("/user/get-or-create", response_model=UserPublic)
+async def get_or_create_user_by_client_id(
+    request_data: GetOrCreateUserRequest,
+    db: Session = Depends(deps.get_db)
+):
+    """
+    Retrieves a user by their client_provided_id.
+    If the user doesn't exist, a new one is created with this ID.
+    Returns the full UserPublic object, including the database ID.
+    """
+    if not request_data.client_provided_id:
+        raise HTTPException(status_code=400, detail="client_provided_id is required.")
+
+    user = crud_user.get_user_by_client_provided_id(db, client_id=request_data.client_provided_id)
+
+    if not user:
+        print(f"User with client_provided_id '{request_data.client_provided_id}' not found. Creating new user.")
+        user = crud_user.create_user_with_client_provided_id(db, user_in=request_data)
+        print(f"Created new user: {user.username} (DB ID: {user.id}, Client ID: {user.client_provided_id})")
+    else:
+        # User exists, update last_login_at or other details if needed
+        user.last_login_at = datetime.now(timezone.utc)
+        if request_data.username and user.username != request_data.username:
+            # Optionally update username if client provides a new one and you allow it
+            # user.username = request_data.username 
+            pass
+        db.commit()
+        db.refresh(user)
+        print(f"Found existing user: {user.username} (DB ID: {user.id}, Client ID: {user.client_provided_id})")
+
+    return UserPublic.model_validate(user)
 
 @router.post("/pgs-login", response_model=BackendToken) # Client sends Server Auth Code
 async def login_with_play_games_server_auth_code(

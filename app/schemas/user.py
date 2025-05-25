@@ -5,7 +5,9 @@ from app.db.base_class import Base
 
 class User(Base):
     id = Column(Integer, primary_key=True, index=True) # Your internal DB ID
+    client_provided_id = Column(String, unique=True, index=True, nullable=True)
     play_games_player_id = Column(String, unique=True, index=True, nullable=False) # Verified PGS Player ID
+    google_id = Column(String, unique=True, index=True, nullable=True) # Might be null for these users
     # Optional: store email if you get it during the auth code exchange,
     # but PGS ID is the primary identifier from Play Games.
     # Email might not always be available or could be different from their main Google account email.

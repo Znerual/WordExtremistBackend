@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin - Edit Game</title>
+    <style> /* Same styles as admin_game_logs.html or link to a shared CSS */
+        body { font-family: sans-serif; margin: 20px; }
+        .container { margin-bottom: 20px; }
+        label { display: block; margin-top: 10px; }
+        input[type="text"], input[type="number"], select { width: 300px; padding: 8px; margin-top: 5px; }
+        input[type="datetime-local"] { padding: 8px; margin-top: 5px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; margin-top: 15px; }
+        .message { padding: 10px; margin-bottom: 15px; border-radius: 5px; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>Admin - Edit Game {{ game.id }} (Matchmaking ID: {{ game.matchmaking_game_id }})</h1>
+
+    {% if message %}
+        <div class="message {{ 'success' if success else 'error' }}">
+            {{ message }}
+        </div>
+    {% endif %}
+
+    <p><a href="/admin/game-logs">Back to Game Logs</a></p>
+
+    <form method="post" action="/admin/game/{{ game.id }}/edit">
+        <div class="container">
+            <label for="matchmaking_game_id">Matchmaking Game ID:</label>
+            <input type="text" id="matchmaking_game_id" name="matchmaking_game_id" value="{{ game.matchmaking_game_id }}" required>
+
+            <label for="status">Status:</label>
+            <input type="text" id="status" name="status" value="{{ game.status }}">
+
+            <label for="winner_user_id">Winner User ID (optional):</label>
+            <input type="number" id="winner_user_id" name="winner_user_id" value="{{ game.winner_user_id if game.winner_user_id is not none }}">
+            
+            <p>Start Time: {{ game.start_time.strftime('%Y-%m-%d %H:%M:%S') if game.start_time else 'N/A' }}</p>
+            <p>End Time: {{ game.end_time.strftime('%Y-%m-%d %H:%M:%S') if game.end_time else 'N/A' }}</p>
+            <!-- Add inputs for start_time and end_time if you want them editable, use datetime-local type -->
+
+            <h3>Players in this Game:</h3>
+            <ul>
+            {% for gp in game.players_association %}
+                <li>
+                    User ID: {{ gp.user_id }} - Score: 
+                    <input type="number" name="player_score_{{ gp.user_id }}" value="{{ gp.score }}" style="width: 60px;">
+                </li>
+            {% endfor %}
+            </ul>
+        </div>
+        <button type="submit">Save Changes</button>
+    </form>
+
+</body>
+</html>

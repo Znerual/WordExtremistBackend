@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin - Edit Word Submission</title>
+    <style> /* Same styles as admin_game_logs.html or link to a shared CSS */
+        body { font-family: sans-serif; margin: 20px; }
+        .container { margin-bottom: 20px; }
+        label { display: block; margin-top: 10px; }
+        input[type="text"], input[type="number"], select { width: 300px; padding: 8px; margin-top: 5px; }
+        input[type="checkbox"] { margin-top: 5px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; margin-top: 15px; }
+        .message { padding: 10px; margin-bottom: 15px; border-radius: 5px; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>Admin - Edit Word Submission ID: {{ submission.id }}</h1>
+
+    {% if message %}
+        <div class="message {{ 'success' if success else 'error' }}">
+            {{ message }}
+        </div>
+    {% endif %}
+
+    <p><a href="/admin/game-logs?submissions_page=1{{ '&game_id_filter=' + submission.game_id if submission.game_id }}">Back to Game Logs (Submissions for Game {{ submission.game_id }})</a></p>
+
+    <form method="post" action="/admin/submission/{{ submission.id }}/edit">
+        <div class="container">
+            <p><strong>Game DB ID:</strong> {{ submission.game_id }}</p>
+            <p><strong>Round:</strong> {{ submission.round_number }}</p>
+            <p><strong>User ID:</strong> {{ submission.user_id }}</p>
+            <p><strong>Sentence Prompt ID:</strong> {{ submission.sentence_prompt_id }}</p>
+            <p><strong>Submission Timestamp:</strong> {{ submission.submission_timestamp.strftime('%Y-%m-%d %H:%M:%S') if submission.submission_timestamp else 'N/A' }}</p>
+
+
+            <label for="submitted_word">Submitted Word:</label>
+            <input type="text" id="submitted_word" name="submitted_word" value="{{ submission.submitted_word }}" required>
+
+            <label for="time_taken_ms">Time Taken (ms) (optional):</label>
+            <input type="number" id="time_taken_ms" name="time_taken_ms" value="{{ submission.time_taken_ms if submission.time_taken_ms is not none }}">
+
+            <label for="is_valid">Is Valid:</label>
+            <input type="checkbox" id="is_valid" name="is_valid" {% if submission.is_valid %}checked{% endif %}>
+            <!-- Hidden input to ensure 'is_valid' is sent even if checkbox is unchecked -->
+            <input type="hidden" name="is_valid_hidden_presence" value="true">
+
+
+        </div>
+        <button type="submit">Save Changes</button>
+    </form>
+
+</body>
+</html>

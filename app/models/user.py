@@ -1,4 +1,5 @@
 # app/models/user.py
+from typing import Optional
 from pydantic import BaseModel, EmailStr, HttpUrl
 from datetime import datetime
 
@@ -38,4 +39,8 @@ class BackendToken(BaseModel):
 
 class ServerAuthCodeRequest(BaseModel):
     server_auth_code: str
+
+class GetOrCreateUserRequest(BaseModel):
+    client_provided_id: str # This could be a device ID, a temporary user-chosen ID, etc.
+    username: Optional[str] = None # Optional: Client can suggest a username
 # If you are NOT issuing your own token and relying on Google ID tokens, you don't need BackendToken

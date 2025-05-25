@@ -9,10 +9,12 @@ import math
 
 from app.api import deps
 from app.models.game_log_display import GamePublic, WordSubmissionPublic
+from app.models.user import UserPublic
 from app.schemas.game_content import SentencePrompt as SentencePromptSchema # SQLAlchemy model
 from app.schemas.game_log import Game, WordSubmission, GamePlayer # SQLAlchemy model
 from app.models.game import SentencePromptPublic # Pydantic model for display
-from app.crud import crud_game_content, crud_game_log # Your existing CRUD functions
+from app.crud import crud_game_content, crud_game_log, crud_user
+from app.schemas.user import User # Your existing CRUD functions
 
 router = APIRouter()
 
@@ -22,6 +24,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 ITEMS_PER_PAGE = 15
+ADMIN_USERS_PER_PAGE = 20
 
 @router.get("/", response_class=HTMLResponse, tags=["Admin"])
 async def admin_dashboard(request: Request):
@@ -29,6 +32,149 @@ async def admin_dashboard(request: Request):
     Serves the main admin dashboard page with links to various admin sections.
     """
     return templates.TemplateResponse("admin_index.html", {"request": request})
+
+@router.get("/users", response_class=HTMLResponse, tags=["Admin User Management"])
+async def list_users_admin(
+    request: Request,
+    db: Session = Depends(deps.get_db),
+    page: int = Query(1, ge=1)
+):
+    offset = (page - 1) * ADMIN_USERS_PER_PAGE
+    total_users_count = db.query(User).count() # User is your SQLAlchemy model
+    db_users = db.query(User).order_by(User.id.desc()).offset(offset).limit(ADMIN_USERS_PER_PAGE).all()
+    
+    users_public = [UserPublic.model_validate(u) for u in db_users]
+
+    return templates.TemplateResponse("admin_users_list.html", {
+        "request": request,
+        "users": users_public,
+        "total_users": total_users_count,
+        "page": page,
+        "total_pages": math.ceil(total_users_count / ADMIN_USERS_PER_PAGE),
+        "message": request.query_params.get("message"),
+        "success": request.query_params.get("success") == "true",
+    })
+
+@router.get("/user/add", response_class=HTMLResponse, tags=["Admin User Management"])
+async def show_add_user_form_admin(request: Request):
+    return templates.TemplateResponse("admin_user_form.html", {"request": request, "user": None})
+
+@router.post("/user/add", response_class=RedirectResponse, tags=["Admin User Management"])
+async def handle_add_user_admin(
+    db: Session = Depends(deps.get_db),
+    username: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    client_provided_id: Optional[str] = Form(None),
+    play_games_player_id: Optional[str] = Form(None),
+    google_id: Optional[str] = Form(None),
+    profile_pic_url: Optional[str] = Form(None),
+    is_active: bool = Form(True) # Default to True
+    # password: Optional[str] = Form(None) # If you were to implement password auth
+):
+    # Basic validation: at least one identifier should be present for a new user usually
+    if not any([username, email, client_provided_id, play_games_player_id, google_id]):
+         # Redirect back to form with error
+        return RedirectResponse(url="/admin/user/add?message=Error: At least one identifying field (username, email, or an ID) is required.&success=false", status_code=303)
+
+    # Check for uniqueness if necessary (e.g., email, client_provided_id, pgs_id, google_id)
+    # This logic can be complex depending on your rules. Example for email:
+    if email and crud_user.get_user_by_email(db, email=email):
+        return RedirectResponse(url=f"/admin/user/add?message=Error: Email '{email}' already exists.&success=false", status_code=303)
+    # Add similar checks for other unique fields (client_provided_id, pgs_id, google_id) if they are provided
+
+    try:
+        # Use a new generic CRUD function to create user
+        # This is a simplified UserCreate model, create a proper Pydantic one if needed
+        user_data = {
+            "username": username, "email": email,
+            "client_provided_id": client_provided_id,
+            "play_games_player_id": play_games_player_id,
+            "google_id": google_id,
+            "profile_pic_url": profile_pic_url,
+            "is_active": is_active
+        }
+        # Remove None values so SQLAlchemy defaults can apply if defined in model
+        user_data_cleaned = {k: v for k, v in user_data.items() if v is not None}
+
+        created_user = crud_user.create_user_admin(db, user_data=user_data_cleaned) # New CRUD function
+        message = f"User '{created_user.username or created_user.id}' created successfully."
+        return RedirectResponse(url=f"/admin/users?message={message}&success=true", status_code=303)
+    except Exception as e:
+        message = f"Error creating user: {e}"
+        return RedirectResponse(url=f"/admin/user/add?message={message}&success=false", status_code=303)
+
+
+@router.get("/user/{user_id}/edit", response_class=HTMLResponse, tags=["Admin User Management"])
+async def show_edit_user_form_admin(request: Request, user_id: int, db: Session = Depends(deps.get_db)):
+    db_user = crud_user.get_user(db, user_id=user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user_public = UserPublic.model_validate(db_user)
+    return templates.TemplateResponse("admin_user_form.html", {
+        "request": request, 
+        "user": user_public, 
+        "user_id": user_id,
+        "message": request.query_params.get("message"),
+        "success": request.query_params.get("success") == "true",
+    })
+
+@router.post("/user/{user_id}/edit", response_class=RedirectResponse, tags=["Admin User Management"])
+async def handle_edit_user_admin(
+    user_id: int,
+    db: Session = Depends(deps.get_db),
+    username: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    client_provided_id: Optional[str] = Form(None),
+    play_games_player_id: Optional[str] = Form(None),
+    google_id: Optional[str] = Form(None),
+    profile_pic_url: Optional[str] = Form(None),
+    is_active_form: Optional[str] = Form(None) # Checkboxes send value "true" or "on" if checked, or not at all
+):
+    db_user = crud_user.get_user(db, user_id=user_id)
+    if not db_user:
+        # Should not happen if coming from valid link, but good check
+        return RedirectResponse(url="/admin/users?message=Error: User not found for editing.&success=false", status_code=303)
+
+    # Handle checkbox for is_active
+    is_active = True if is_active_form else False
+
+    update_data = {
+        "username": username, "email": email,
+        "client_provided_id": client_provided_id,
+        "play_games_player_id": play_games_player_id,
+        "google_id": google_id,
+        "profile_pic_url": profile_pic_url,
+        "is_active": is_active
+    }
+    # Filter out fields that were not submitted or are empty strings to avoid overwriting with None unintentionally
+    # unless you specifically want to allow setting fields to NULL via empty form submissions.
+    # For this example, we'll update with provided values, allowing empty strings to clear fields if model allows nullable.
+    
+    try:
+        updated_user = crud_user.update_user_admin(db, user_id=user_id, user_update_data=update_data) # New CRUD
+        message = f"User '{updated_user.username or updated_user.id}' updated successfully."
+        return RedirectResponse(url=f"/admin/user/{user_id}/edit?message={message}&success=true", status_code=303)
+    except Exception as e:
+        # Catch specific exceptions like IntegrityError for duplicate unique fields
+        message = f"Error updating user: {e}"
+        return RedirectResponse(url=f"/admin/user/{user_id}/edit?message={message}&success=false", status_code=303)
+
+
+@router.post("/user/{user_id}/delete", response_class=RedirectResponse, tags=["Admin User Management"])
+async def handle_delete_user_admin(user_id: int, db: Session = Depends(deps.get_db)):
+    db_user = crud_user.get_user(db, user_id=user_id)
+    if not db_user:
+        message = "Error: User not found for deletion."
+        return RedirectResponse(url=f"/admin/users?message={message}&success=false", status_code=303)
+    try:
+        username_deleted = db_user.username or f"ID {db_user.id}"
+        crud_user.delete_user_admin(db, user_id=user_id) # New CRUD function
+        message = f"User '{username_deleted}' deleted successfully."
+        return RedirectResponse(url=f"/admin/users?message={message}&success=true", status_code=303)
+    except Exception as e:
+        # Handle cases where deletion might fail due to foreign key constraints if user is linked elsewhere
+        message = f"Error deleting user: {e}. Check for related records (games, submissions)."
+        return RedirectResponse(url=f"/admin/users?message={message}&success=false", status_code=303)
 
 @router.get("/add-sentence-prompt", response_class=HTMLResponse, tags=["Admin"])
 async def show_add_sentence_prompt_form(

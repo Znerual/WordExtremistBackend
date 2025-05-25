@@ -276,5 +276,5 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 			except Exception as close_e:
 				print(f"Error closing WS for P:{player_id_of_this_connection} G:{game_id} in finally: {close_e}")
 		
-		game_manager.disconnect(game_id, player_id_of_this_connection, websocket)
+		game_manager.disconnect(game_id, player_id_of_this_connection)
 		print(f"Exited WS handler for P:{player_id_of_this_connection} G:{game_id}. Remaining conns for G:{game_id}: {list(game_manager.active_connections.get(game_id, {}).keys())}")

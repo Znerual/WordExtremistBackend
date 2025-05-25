@@ -1,4 +1,5 @@
 # app/crud/crud_user.py
+from typing import Any, Dict
 from sqlalchemy.orm import Session
 from app.schemas.user import User
 from app.models.user import UserCreateFromGoogle, UserCreateFromPGS, GetOrCreateUserRequest  # Use this Pydantic model
@@ -81,3 +82,48 @@ def update_user_login_info(db: Session, user: User) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+def create_user_admin(db: Session, user_data: Dict[str, Any]) -> User:
+    """
+    Creates a user with arbitrary data provided by an admin.
+    Handles potential None values for fields that are nullable in the DB.
+    """
+    # Ensure essential fields like is_active have defaults if not provided
+    user_data.setdefault('is_active', True)
+
+    # Filter out keys not in User model to prevent errors, or ensure user_data only contains valid keys
+    # For simplicity, assuming user_data keys match User model attributes
+    db_user = User(**user_data)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def update_user_admin(db: Session, user_id: int, user_update_data: Dict[str, Any]) -> User | None:
+    """
+    Updates a user's details by an admin.
+    user_update_data should be a dict of fields to update.
+    """
+    db_user = get_user(db, user_id=user_id)
+    if db_user:
+        for key, value in user_update_data.items():
+            # Only update if the field exists on the model and value is provided
+            # (or if you want to allow setting to None explicitly)
+            if hasattr(db_user, key):
+                setattr(db_user, key, value)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+    return None
+
+def delete_user_admin(db: Session, user_id: int) -> bool:
+    """Deletes a user by their ID."""
+    db_user = get_user(db, user_id=user_id)
+    if db_user:
+        db.delete(db_user)
+        db.commit()
+        return True
+    return False
+
+def get_all_users_paginated(db: Session, skip: int = 0, limit: int = 100) -> list[User]:
+    return db.query(User).order_by(User.id.desc()).offset(skip).limit(limit).all()

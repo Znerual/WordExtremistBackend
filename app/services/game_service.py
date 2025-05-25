@@ -1,12 +1,14 @@
 # app/services/game_service.py
 from sqlalchemy.orm import Session # For type hinting db session if passed
 import time
+import datetime
 from typing import Dict, Any, Tuple, List, Literal
 
 from app.models.game import SentencePromptPublic, GameStatePlayer # Pydantic models from your existing files
 from app.models.user import UserPublic # For player details from matchmaking
 from app.crud import crud_game_content # To fetch new sentences
 from app.services.word_validator import validate_word_against_prompt
+from app.crud import crud_game_log
 
 MAX_MISTAKES = 3
 GAME_MAX_ROUNDS = 3 # Example, can be configured
@@ -55,6 +57,26 @@ def initialize_new_game_state(
     p1_sid = original_player_ids[0]
     p2_sid = original_player_ids[1]
 
+    try:
+        db_game_instance = crud_game_log.create_game_record(
+            db, 
+            matchmaking_game_id=game_id, # Store the string ID from matchmaking
+            player1_id=p1_sid, 
+            player2_id=p2_sid
+        )
+        db_game_id_for_logging = db_game_instance.id # The integer PK for logging
+    except Exception as e:
+        print(f"ERROR creating game DB record for {game_id}: {e}")
+        # Decide how to handle: proceed without logging or raise error
+        db_game_id_for_logging = None # Signal that logging might fail
+        # Potentially add an error event
+        error_event = GameEvent(
+            "error_message_broadcast",
+            {"message": "Critical error initializing game records. Game may not be logged."},
+            broadcast=True
+        )
+        # events.append(error_event) # Add to events list if needed
+
     # Assuming player_details in matchmaking_game_info are dicts from UserPublic.model_dump()
     p1_details_dict = matchmaking_game_info["player_details"][p1_sid]
     p2_details_dict = matchmaking_game_info["player_details"][p2_sid]
@@ -70,6 +92,7 @@ def initialize_new_game_state(
 
     initial_gs_dict = {
         "game_id": game_id,
+        "db_game_id": db_game_id_for_logging,
         "players": {p1_sid: p1_gs_player, p2_sid: p2_gs_player},
         "status": "in_progress",
         "current_player_id": p1_sid, # P1 from matchmaking starts
@@ -195,13 +218,34 @@ def process_player_game_action(
 
     is_acting_players_turn = current_game_state["current_player_id"] == acting_player_id
 
+    db_game_id_for_logging = current_game_state.get("db_game_id")
+    current_prompt_details = current_game_state.get("sentence_prompt", {})
+    sentence_prompt_db_id = current_prompt_details.get("id") if current_prompt_details else None
+
     if action_type == "submit_word":
         if not is_acting_players_turn:
             events.append(GameEvent(event_type="error_message_to_player", payload={"message": "Not your turn."}, target_player_id=acting_player_id))
             return current_game_state, events
 
         word = action_payload.get("word", "").strip().lower()
+
+        time_taken_ms = None
+        last_action_ts = current_game_state.get("last_action_timestamp")
+        if last_action_ts:
+            time_taken_ms = int((time.time() - last_action_ts) * 1000)
+
+        current_game_state["last_action_timestamp"] = time.time() # Update for next turn or calculation
+
         if not word:
+            if db_game_id_for_logging and sentence_prompt_db_id:
+                try:
+                    crud_game_log.log_word_submission(
+                        db, game_db_id=db_game_id_for_logging, round_number=current_game_state["current_round"],
+                        user_id=acting_player_id, sentence_prompt_id=sentence_prompt_db_id,
+                        submitted_word=word, time_taken_ms=time_taken_ms, is_valid=False
+                    )
+                except Exception as log_e:
+                    print(f"Error logging empty word submission: {log_e}")
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": "Word cannot be empty."}, target_player_id=acting_player_id))
             return current_game_state, events
 
@@ -210,6 +254,15 @@ def process_player_game_action(
             current_game_state["players"][acting_player_id]["mistakes_in_current_round"] += 1
             mistakes = current_game_state["players"][acting_player_id]["mistakes_in_current_round"]
             current_game_state["last_action_timestamp"] = time.time()
+            if db_game_id_for_logging and sentence_prompt_db_id:
+                try:
+                    crud_game_log.log_word_submission(
+                        db, game_db_id=db_game_id_for_logging, round_number=current_game_state["current_round"],
+                        user_id=acting_player_id, sentence_prompt_id=sentence_prompt_db_id,
+                        submitted_word=word, time_taken_ms=time_taken_ms, is_valid=False # Repeated is not "valid" in context of game rules
+                    )
+                except Exception as log_e:
+                    print(f"Error logging repeated word submission: {log_e}")
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": "Word already played. Mistake!"}, target_player_id=acting_player_id))
             
             if mistakes >= MAX_MISTAKES:
@@ -223,6 +276,16 @@ def process_player_game_action(
         is_valid_replacement = validate_word_against_prompt(
             word, prompt_obj.target_word, prompt_obj.prompt_text, prompt_obj.sentence_text
         )
+
+        if db_game_id_for_logging and sentence_prompt_db_id:
+            try:
+                crud_game_log.log_word_submission(
+                    db, game_db_id=db_game_id_for_logging, round_number=current_game_state["current_round"],
+                    user_id=acting_player_id, sentence_prompt_id=sentence_prompt_db_id,
+                    submitted_word=word, time_taken_ms=time_taken_ms, is_valid=is_valid_replacement
+                )
+            except Exception as log_e:
+                print(f"Error logging word submission (validity: {is_valid_replacement}): {log_e}")
 
         if is_valid_replacement:
             current_game_state["players"][acting_player_id]["words_played"].append(action_payload.get("word")) # Store original case
@@ -238,13 +301,7 @@ def process_player_game_action(
                 "opponent_player_id": str(acting_player_id), 
                 "opponent_played_word": action_payload.get("word"),
                 "current_player_id": str(next_player_id),
-                #f"player_{p1_id}_score": current_game_state["players"][p1_id]["score"],
-                #f"player_{p1_id}_mistakes": current_game_state["players"][p1_id]["mistakes_in_current_round"],
-                #f"player_{p2_id}_score": current_game_state["players"][p2_id]["score"],
-                #f"player_{p2_id}_mistakes": current_game_state["players"][p2_id]["mistakes_in_current_round"],
                 "game_id": current_game_state["game_id"], "current_sentence": prompt_obj.sentence_text,
-                #"prompt": prompt_obj.prompt_text, "word_to_replace": prompt_obj.target_word,
-                #"round": current_game_state["current_round"], 
                 "game_active": True,
                 "last_action_timestamp": current_game_state.get("last_action_timestamp")
             }
@@ -257,7 +314,7 @@ def process_player_game_action(
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": "Not a valid replacement. Mistake!"}, target_player_id=acting_player_id))
             events.append(GameEvent(event_type="opponent_mistake", payload={"player_id": str(acting_player_id), "mistakes": mistakes}, target_player_id=next_player_id))
             if mistakes >= MAX_MISTAKES:
-                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, "invalid_word", db)
+                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, "invalid_word_max_mistakes", db)
                 events.extend(round_game_over_events)
         
         return current_game_state, events
@@ -324,6 +381,15 @@ def _handle_round_or_game_end(
 
     p1_score = current_game_state["players"][p1_id]["score"]
     p2_score = current_game_state["players"][p2_id]["score"]
+
+    db_game_id_for_logging = current_game_state.get("db_game_id")
+    if db_game_id_for_logging:
+        try:
+            # Update both players' scores after a round win
+            crud_game_log.update_game_player_score(db, game_db_id=db_game_id_for_logging, user_id=p1_id, new_score=p1_score)
+            crud_game_log.update_game_player_score(db, game_db_id=db_game_id_for_logging, user_id=p2_id, new_score=p2_score)
+        except Exception as log_e:
+            print(f"Error updating player scores in DB for game {db_game_id_for_logging}: {log_e}")
     
     print(f"G:{current_game_state['game_id']} R:{current_game_state['current_round']} ended. Loser:{round_loser_id} by {reason}. Winner:{round_winner_id}. Score P1({p1_id}):{p1_score}, P2({p2_id}):{p2_score}")
 
@@ -343,6 +409,12 @@ def _handle_round_or_game_end(
         
         current_game_state["status"] = "finished"
         
+        if db_game_id_for_logging:
+            try:
+                crud_game_log.finalize_game_record(db, game_db_id=db_game_id_for_logging, winner_user_id=final_winner_id, status="finished")
+            except Exception as log_e:
+                print(f"Error finalizing game DB record {db_game_id_for_logging}: {log_e}")
+
         game_over_payload = {
             "game_winner_id": str(final_winner_id) if final_winner_id else None,
             "player1_server_id": str(p1_id), "player2_server_id": str(p2_id),
@@ -379,6 +451,25 @@ def handle_player_disconnect(
 
     print(f"G:{current_game_state['game_id']} - P:{disconnected_player_id} disconnected during active game.")
     
+    db_game_id_for_logging = current_game_state.get("db_game_id")
+    if db_game_id_for_logging and current_game_state["status"] != "finished" and current_game_state["status"] != "error_content_load":
+        try:
+            # Determine winner by forfeit if not already set by a "finished" status from _handle_round_or_game_end
+            p1_id = current_game_state["matchmaking_player_order"][0]
+            p2_id = current_game_state["matchmaking_player_order"][1]
+            forfeit_winner_id = p1_id if disconnected_player_id == p2_id else p2_id
+            
+            crud_game_log.finalize_game_record(
+                db, 
+                game_db_id=db_game_id_for_logging, 
+                winner_user_id=forfeit_winner_id, # Winner by forfeit
+                status="abandoned_by_player"
+            )
+            current_game_state["status"] = "abandoned_by_player" # Reflect in-memory state
+            print(f"Game {current_game_state['game_id']} (DB ID: {db_game_id_for_logging}) marked as abandoned by P:{disconnected_player_id}.")
+        except Exception as log_e:
+            print(f"Error marking game as abandoned in DB {db_game_id_for_logging}: {log_e}")
+
     # Inform other player(s)
     disconnect_inform_payload = {"player_id": str(disconnected_player_id)}
     events.append(GameEvent(event_type="player_disconnected_inform", payload=disconnect_inform_payload, broadcast=True, exclude_player_id=disconnected_player_id))

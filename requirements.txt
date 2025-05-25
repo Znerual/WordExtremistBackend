@@ -18,3 +18,4 @@ pytest-asyncio
 httpx
 jinja2
 python-multipart
+alembic

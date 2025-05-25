@@ -22,7 +22,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>{{ 'Edit User (ID: ' + user.id + ')' if user else 'Add New User' }}</h1>
+        <h1>{{ 'Edit User (ID: ' + (user.id|string) + ')' if user else 'Add New User' }}</h1>
 
         <a href="/admin/users" class="back-link">Back to Users List</a>
 

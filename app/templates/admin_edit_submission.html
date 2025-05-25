@@ -24,7 +24,7 @@
         </div>
     {% endif %}
 
-    <p><a href="/admin/game-logs?submissions_page=1{{ '&game_id_filter=' + submission.game_id if submission.game_id }}">Back to Game Logs (Submissions for Game {{ submission.game_id }})</a></p>
+    <p><a href="/admin/game-logs?submissions_page=1{{ '&game_id_filter=' + (submission.game_id|string) if submission.game_id }}">Back to Game Logs (Submissions for Game {{ submission.game_id }})</a></p>
 
     <form method="post" action="/admin/submission/{{ submission.id }}/edit">
         <div class="container">

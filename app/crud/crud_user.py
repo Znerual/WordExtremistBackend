@@ -104,6 +104,12 @@ def create_user_admin(db: Session, user_data: Dict[str, Any]) -> User:
     # Ensure essential fields like is_active have defaults if not provided
     user_data.setdefault('is_active', True)
 
+    # Convert empty strings for optional fields to None
+    for key in ['email', 'profile_pic_url', 'username', 
+                'client_provided_id', 'play_games_player_id', 'google_id']: # Add all relevant optional string fields
+        if key in user_data and user_data[key] == '':
+            user_data[key] = None
+
     # Filter out keys not in User model to prevent errors, or ensure user_data only contains valid keys
     # For simplicity, assuming user_data keys match User model attributes
     db_user = User(**user_data)
@@ -123,7 +129,11 @@ def update_user_admin(db: Session, user_id: int, user_update_data: Dict[str, Any
             # Only update if the field exists on the model and value is provided
             # (or if you want to allow setting to None explicitly)
             if hasattr(db_user, key):
-                setattr(db_user, key, value)
+                if value == '' and key in ['email', 'profile_pic_url', 'username', 
+                                            'client_provided_id', 'play_games_player_id', 'google_id']:
+                    setattr(db_user, key, None)
+                else:
+                    setattr(db_user, key, value)
         db.commit()
         db.refresh(db_user)
         return db_user

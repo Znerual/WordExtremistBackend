@@ -54,6 +54,7 @@ class WordSubmission(Base):
     time_taken_ms = Column(Integer, nullable=True) # Time in milliseconds for this word attempt
     is_valid = Column(Boolean, nullable=False) # Was the word valid for the prompt?
     submission_timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    creativity_score = Column(Integer, nullable=True) # <--- ADD THIS LINE
 
     game = relationship("Game", back_populates="word_submissions")
     user = relationship("User")

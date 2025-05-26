@@ -30,7 +30,8 @@ def log_word_submission(
     sentence_prompt_id: int, 
     submitted_word: str, 
     time_taken_ms: int | None, 
-    is_valid: bool
+    is_valid: bool,
+    creativity_score: Optional[int] = None # <--- ADD THIS PARAMETER
 ) -> WordSubmission:
     db_submission = WordSubmission(
         game_id=game_db_id,
@@ -40,7 +41,8 @@ def log_word_submission(
         submitted_word=submitted_word,
         time_taken_ms=time_taken_ms,
         is_valid=is_valid,
-        submission_timestamp=datetime.datetime.now(datetime.timezone.utc)
+        submission_timestamp=datetime.datetime.now(datetime.timezone.utc),
+        creativity_score=creativity_score # <--- ADD THIS ARGUMENT
     )
     db.add(db_submission)
     db.commit()

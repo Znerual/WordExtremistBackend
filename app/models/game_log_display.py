@@ -22,6 +22,7 @@ class WordSubmissionPublic(BaseModel):
     time_taken_ms: Optional[int] = None
     is_valid: bool
     submission_timestamp: datetime
+    creativity_score: Optional[int] = None # <--- ADD THIS LINE
 
     class Config:
         from_attributes = True

@@ -17,14 +17,9 @@ from app.crud import crud_game_content, crud_game_log, crud_user
 from app.schemas.user import User # Your existing CRUD functions
 from fastapi import HTTPException # Added HTTPException
 
-# Define Pydantic model for request body validation
-from pydantic import BaseModel # Added BaseModel
-
-class SentencePromptCreate(BaseModel):
-    sentence_text: str
-    target_word: str
-    prompt_text: str
-    difficulty: int = 1
+# Removed local SentencePromptCreate definition and BaseModel import
+# from pydantic import BaseModel # This should have been removed earlier if only for SentencePromptCreate
+# class SentencePromptCreate(BaseModel): ...
 
 router = APIRouter()
 
@@ -274,7 +269,7 @@ async def handle_add_sentence_prompt(
 # New API Route for creating sentence prompts
 @router.post("/api/v1/sentence-prompts/", response_model=SentencePromptPublic, tags=["Game Content"])
 async def api_create_sentence_prompt(
-    sentence_prompt_data: SentencePromptCreate, 
+    sentence_prompt_data: SentencePromptPublic, # Changed type here
     db: Session = Depends(deps.get_db)
 ) -> SentencePromptModel:
     """

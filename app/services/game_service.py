@@ -6,6 +6,7 @@ from typing import Dict, Any, Tuple, List, Literal
 
 from app.models.game import SentencePromptPublic, GameStatePlayer # Pydantic models from your existing files
 from app.models.user import UserPublic # For player details from matchmaking
+from app.models.validation import WordValidationResult # Added import
 from app.crud import crud_game_content # To fetch new sentences
 from app.services.word_validator import validate_word_against_prompt
 from app.crud import crud_game_log
@@ -273,7 +274,7 @@ def process_player_game_action(
 
         # 2. Validate word against prompt
         prompt_obj = SentencePromptPublic(**current_game_state["sentence_prompt"])
-        is_valid_replacement = validate_word_against_prompt(
+        validation_result: WordValidationResult = validate_word_against_prompt(
             db=db,
             word=word,
             sentence_prompt_id=sentence_prompt_db_id,
@@ -281,22 +282,38 @@ def process_player_game_action(
             prompt_text=prompt_obj.prompt_text,
             sentence_text=prompt_obj.sentence_text
         )
+        is_valid_replacement = validation_result.is_valid # Keep for existing logic flow
 
-
-        if db_game_id_for_logging and sentence_prompt_db_id:
-            try:
-                crud_game_log.log_word_submission(
-                    db, game_db_id=db_game_id_for_logging, round_number=current_game_state["current_round"],
-                    user_id=acting_player_id, sentence_prompt_id=sentence_prompt_db_id,
-                    submitted_word=word, time_taken_ms=time_taken_ms, is_valid=is_valid_replacement
-                )
-            except Exception as log_e:
-                print(f"Error logging word submission (validity: {is_valid_replacement}): {log_e}")
+        # Log if not from cache
+        if not validation_result.from_cache:
+            if db_game_id_for_logging and sentence_prompt_db_id is not None: 
+                try:
+                    crud_game_log.log_word_submission(
+                        db=db, 
+                        game_db_id=db_game_id_for_logging, 
+                        round_number=current_game_state["current_round"],
+                        user_id=acting_player_id, 
+                        sentence_prompt_id=sentence_prompt_db_id,
+                        submitted_word=word, # Use the normalized 'word' for logging consistency
+                        time_taken_ms=time_taken_ms, 
+                        is_valid=validation_result.is_valid,
+                        creativity_score=validation_result.creativity_score
+                    )
+                except Exception as log_e:
+                    print(f"Error logging new word submission (validity: {validation_result.is_valid}): {log_e}")
+            else:
+                print(f"Skipping DB log for new word: db_game_id={db_game_id_for_logging}, prompt_id={sentence_prompt_db_id}")
 
         if is_valid_replacement:
             current_game_state["players"][acting_player_id]["words_played"].append(action_payload.get("word")) # Store original case
             current_game_state["words_played_this_round_all"].append(word)
-            events.append(GameEvent(event_type="validation_result", payload={"word": action_payload.get("word"), "is_valid": True}, target_player_id=acting_player_id))
+            
+            validation_event_payload = {
+                "word": action_payload.get("word"), # Original case word
+                "is_valid": True,
+                "creativity_score": validation_result.creativity_score
+            }
+            events.append(GameEvent(event_type="validation_result", payload=validation_event_payload, target_player_id=acting_player_id))
 
             # Switch turn
             next_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
@@ -306,6 +323,7 @@ def process_player_game_action(
             opponent_turn_ended_payload = {
                 "opponent_player_id": str(acting_player_id), 
                 "opponent_played_word": action_payload.get("word"),
+                "creativity_score": validation_result.creativity_score, # Add creativity score here too for opponent
                 "current_player_id": str(next_player_id),
                 "game_id": current_game_state["game_id"], "current_sentence": prompt_obj.sentence_text,
                 "game_active": True,
@@ -318,7 +336,15 @@ def process_player_game_action(
             mistakes = current_game_state["players"][acting_player_id]["mistakes_in_current_round"]
             current_game_state["last_action_timestamp"] = time.time()
             other_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
-            events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": "Not a valid replacement. Mistake!"}, target_player_id=acting_player_id))
+            
+            validation_event_payload = {
+                "word": word, # Normalized word
+                "is_valid": False,
+                "message": validation_result.error_message or "Not a valid replacement. Mistake!", # Use Gemini's reason if available
+                "creativity_score": validation_result.creativity_score # Should be None
+            }
+            events.append(GameEvent(event_type="validation_result", payload=validation_event_payload, target_player_id=acting_player_id))
+            
             events.append(GameEvent(event_type="opponent_mistake", payload={"player_id": str(acting_player_id), "mistakes": mistakes}, target_player_id=other_player_id))
             if mistakes >= MAX_MISTAKES:
                 current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, "invalid_word_max_mistakes", db)

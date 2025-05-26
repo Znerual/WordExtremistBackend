@@ -17,3 +17,13 @@ def create_sentence_prompt(db: Session, sentence_text: str, target_word: str, pr
     db.commit()
     db.refresh(db_item)
     return db_item
+
+def get_sentence_prompt_by_content(db: Session, sentence_text: str, target_word: str, prompt_text: str) -> SentencePrompt | None:
+    """
+    Retrieves a sentence prompt from the database based on its exact content.
+    """
+    return db.query(SentencePrompt).filter(
+        SentencePrompt.sentence_text == sentence_text,
+        SentencePrompt.target_word == target_word,
+        SentencePrompt.prompt_text == prompt_text
+    ).first()

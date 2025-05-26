@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_SECRET_KEY: str = "your-super-secret-and-long-random-string-for-jwt-CHANGE-THIS-IMMEDIATELY" 
     JWT_ALGORITHM: str = "HS256"
+    
+    # Please set your Gemini API Key in the .env file
+    GEMINI_API_KEY: str = "YOUR_GEMINI_API_KEY_HERE" # Added this line
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 @lru_cache()

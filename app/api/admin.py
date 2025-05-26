@@ -10,11 +10,21 @@ import math
 from app.api import deps
 from app.models.game_log_display import GamePublic, WordSubmissionPublic
 from app.models.user import UserPublic
-from app.schemas.game_content import SentencePrompt as SentencePromptSchema # SQLAlchemy model
+from app.schemas.game_content import SentencePrompt as SentencePromptModel # SQLAlchemy model
 from app.schemas.game_log import Game, WordSubmission, GamePlayer # SQLAlchemy model
 from app.models.game import SentencePromptPublic # Pydantic model for display
 from app.crud import crud_game_content, crud_game_log, crud_user
 from app.schemas.user import User # Your existing CRUD functions
+from fastapi import HTTPException # Added HTTPException
+
+# Define Pydantic model for request body validation
+from pydantic import BaseModel # Added BaseModel
+
+class SentencePromptCreate(BaseModel):
+    sentence_text: str
+    target_word: str
+    prompt_text: str
+    difficulty: int = 1
 
 router = APIRouter()
 
@@ -190,7 +200,7 @@ async def show_add_sentence_prompt_form(
     try:
         # Crude way to get last 5 for now, ideally add a proper CRUD function
         db_prompts = db.query(SentencePromptSchema).order_by(SentencePromptSchema.id.desc()).limit(5).all()
-        prompts_public = [SentencePromptPublic.model_validate(p) for p in db_prompts]
+        prompts_public = [SentencePromptPublic.model_validate(p) for p in db_prompts] # Ensure this uses the correct model
     except Exception as e:
         print(f"Error fetching existing prompts: {e}")
         prompts_public = []
@@ -199,7 +209,7 @@ async def show_add_sentence_prompt_form(
 
     return templates.TemplateResponse("admin_forms.html", {
         "request": request,
-        "prompts": prompts_public,
+        "prompts": prompts_public, # Ensure this uses the correct model
         "message": message,
         "success": success
     })
@@ -232,16 +242,14 @@ async def handle_add_sentence_prompt(
             sentence_text=sentence_text,
             target_word=target_word,
             prompt_text=prompt_text,
-            # difficulty=difficulty # Ensure your create_sentence_prompt handles difficulty
+            sentence_text=sentence_text,
+            target_word=target_word,
+            prompt_text=prompt_text,
+            difficulty=difficulty # Pass difficulty here
         )
-        # Update crud_game_content.create_sentence_prompt to accept difficulty
-        # For now, let's assume it doesn't and handle it separately if needed, or ignore.
-        # If your create_sentence_prompt was updated to take difficulty:
-        # created_prompt.difficulty = difficulty
-        # db.commit()
-        # db.refresh(created_prompt)
+        # Ensure crud_game_content.create_sentence_prompt handles difficulty
 
-        success_msg = f"Successfully added prompt: '{created_prompt.sentence_text[:30]}...'"
+        success_msg = f"Successfully added prompt: ID {created_prompt.id} - '{created_prompt.sentence_text[:30]}...'"
         # Redirect back to the form page with a success message
         return RedirectResponse(
             url=f"/admin/add-sentence-prompt?message={success_msg}&success=true",
@@ -262,7 +270,38 @@ async def handle_add_sentence_prompt(
             url=f"/admin/add-sentence-prompt?message={error_msg_exc}&success=false",
             status_code=303
         )
+
+# New API Route for creating sentence prompts
+@router.post("/api/v1/sentence-prompts/", response_model=SentencePromptPublic, tags=["Game Content"])
+async def api_create_sentence_prompt(
+    sentence_prompt_data: SentencePromptCreate, 
+    db: Session = Depends(deps.get_db)
+) -> SentencePromptModel:
+    """
+    Creates a new sentence prompt via API.
+    """
+    if sentence_prompt_data.target_word.lower() not in sentence_prompt_data.sentence_text.lower():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target word '{sentence_prompt_data.target_word}' not found in sentence '{sentence_prompt_data.sentence_text}'."
+        )
     
+    # Call the CRUD function to create the sentence prompt
+    # Ensure your CRUD function `create_sentence_prompt` can accept all fields from SentencePromptCreate
+    # including 'difficulty'.
+    created_prompt_db = crud_game_content.create_sentence_prompt(
+        db=db,
+        sentence_text=sentence_prompt_data.sentence_text,
+        target_word=sentence_prompt_data.target_word,
+        prompt_text=sentence_prompt_data.prompt_text,
+        difficulty=sentence_prompt_data.difficulty
+    )
+    
+    # FastAPI will automatically convert the SQLAlchemy model (SentencePromptModel)
+    # to the Pydantic response_model (SentencePromptPublic).
+    # No need to call .model_validate here if response_model is set correctly.
+    return created_prompt_db
+
 @router.get("/game-logs", response_class=HTMLResponse, tags=["Admin Game Logs"])
 async def show_game_logs(
     request: Request,

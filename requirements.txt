@@ -20,3 +20,5 @@ jinja2
 python-multipart
 alembic
 python-jose[cryptography]
+google-generativeai
+requests

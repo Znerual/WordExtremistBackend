@@ -7,6 +7,7 @@ class SentencePromptPublic(BaseModel):
     sentence_text: str
     target_word: str
     prompt_text: str
+    difficulty: int
 
     class Config:
         from_attributes = True

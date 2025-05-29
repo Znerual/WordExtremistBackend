@@ -5,6 +5,7 @@ import sys
 import time
 import requests
 import google.generativeai as genai
+import google.generativeai.types as genai_types
 
 # Add project root to Python path to allow importing app modules
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -27,6 +28,7 @@ API_BASE_URL = "http://localhost:8000" # Assuming default FastAPI port
 SENTENCE_PROMPT_ENDPOINT = f"{API_BASE_URL}/api/v1/sentence-prompts/"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
+DEFAULT_BATCH_SIZE = 3 # Number of items to request from Gemini per call
 
 # --- Gemini Model Setup ---
 def configure_gemini():
@@ -36,7 +38,7 @@ def configure_gemini():
         sys.exit(1)
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash-latest') # Or the specific flash lite model if different
+        model = genai.GenerativeModel('gemini-2.5-flash-preview-05-20') # Or the specific flash lite model if different
         print("Gemini client configured successfully.")
         return model
     except Exception as e:
@@ -49,7 +51,8 @@ def add_sentence_prompt_api(sentence, target_word, prompt, difficulty):
         "sentence_text": sentence,
         "target_word": target_word,
         "prompt_text": prompt,
-        "difficulty": difficulty
+        "difficulty": difficulty,
+        "language": "en" # Assuming English, adjust if needed
     }
     for attempt in range(MAX_RETRIES):
         try:
@@ -76,66 +79,96 @@ def add_sentence_prompt_api(sentence, target_word, prompt, difficulty):
             return None
     return None # Should be unreachable if loop completes
 
+
+single_game_content_schema = genai_types.Schema(
+    type=genai_types.Type.OBJECT,
+    properties={
+        'sentence': genai_types.Schema(type=genai_types.Type.STRING, description="An interesting sentence for the game."),
+        'target_word': genai_types.Schema(type=genai_types.Type.STRING, description="A single word from the 'sentence' that will be the focus."),
+        'prompt': genai_types.Schema(type=genai_types.Type.STRING, description="A short, engaging instruction for the player related to the target word. Example: 'Make it more intense!'"),
+        'difficulty': genai_types.Schema(type=genai_types.Type.INTEGER, description="Estimated difficulty of finding a good word for this combination, from 1 (very easy) to 5 (very hard).")
+    },
+    required=['sentence', 'target_word', 'prompt', 'difficulty']
+)
+game_content_list_schema = genai_types.Schema(
+    type=genai_types.Type.ARRAY,
+    items=single_game_content_schema,
+    description="A list of game content objects, each containing a sentence, target word, prompt, and difficulty."
+)
+
 # --- Content Generation (Placeholder) ---
-def generate_content_with_gemini(model):
-    print("Generating content with Gemini...")
+def generate_multiple_content_items_with_gemini(model, num_items_to_generate: int):
+    print(f"Generating {num_items_to_generate} content item(s) with Gemini using response schema...")
     try:
-        # Construct a more detailed prompt for Gemini
-        # This prompt asks for a JSON output directly.
         prompt_text = f"""
-        Generate a unique and creative sentence-prompt combination for a word game.
+        Generate {num_items_to_generate} unique and creative sentence-prompt combinations for a word game.
+        Each combination should be distinct from the others in this batch.
         The game involves players finding words that fit a task, related to a target word in a sentence.
 
-        Output the result as a single JSON object with the following exact keys:
-        - "sentence": A string containing an interesting sentence.
-        - "target_word": A single word from the "sentence" that will be the focus.
-        - "prompt": A short, engaging instruction for the player (e.g., "Make it more intense!", "Change the mood to somber.", "Use a synonym for elegance."). The prompt should guide the player to change or describe the target_word.
-        - "difficulty": An integer from 1 (very easy) to 5 (very hard), representing the estimated difficulty of finding a good word for this combination.
+        For each combination, provide:
+        - "sentence": An interesting sentence.
+        - "target_word": A single word from that sentence.
+        - "prompt": A short, engaging instruction for the player.
+        - "difficulty": An integer from 1 (easy) to 5 (hard).
 
-        Example JSON output:
-        {{
-            "sentence": "The old house stood silently on the hill.",
-            "target_word": "silently",
-            "prompt": "Describe its sound instead.",
-            "difficulty": 3
-        }}
-
-        Ensure the target_word is actually present in the sentence.
-        Do not include any markdown formatting (like ```json) around the JSON output.
-        Generate a new, previously unseen combination.
+        Ensure the target_word is actually present in its corresponding sentence.
+        The output must be a JSON array, where each element is an object matching the defined schema.
         """
         
-        response = model.generate_content(prompt_text)
+        generation_config = genai_types.GenerationConfig(
+            response_schema=game_content_list_schema # Use the schema for a list of items
+            # temperature=0.9 # Optional: adjust for creativity
+        )
         
-        # Attempt to clean and parse the response
-        # Gemini can sometimes include ```json markdown, try to strip it.
+        response = model.generate_content(
+            prompt_text,
+            generation_config=generation_config
+        )
+        
         cleaned_response_text = response.text.strip()
+        # Minimal cleaning, schema should enforce JSON array
         if cleaned_response_text.startswith("```json"):
             cleaned_response_text = cleaned_response_text[7:]
         if cleaned_response_text.endswith("```"):
             cleaned_response_text = cleaned_response_text[:-3]
+            
+        content_data_list = json.loads(cleaned_response_text)
         
-        content_data = json.loads(cleaned_response_text)
-        
-        # Basic validation of structure
-        if not all(k in content_data for k in ["sentence", "target_word", "prompt", "difficulty"]):
-            print("Error: Gemini response missing one or more required keys.")
+        if not isinstance(content_data_list, list):
+            print("Error: Gemini response is not a list as expected by the schema.")
+            print(f"Raw response was: {response.text}")
             return None
-        if not isinstance(content_data["difficulty"], int):
-            print("Error: Gemini response 'difficulty' is not an integer.")
-            return None
+
+        # Validate each item in the list (basic validation)
+        validated_items = []
+        for item in content_data_list:
+            if not all(k in item for k in ["sentence", "target_word", "prompt", "difficulty"]):
+                print(f"Error: Gemini response item missing one or more required keys: {item}")
+                continue # Skip this invalid item
+            if not isinstance(item["difficulty"], int):
+                print(f"Error: Gemini response item 'difficulty' is not an integer: {item}")
+                continue # Skip this invalid item
+            validated_items.append(item)
         
-        print(f"Gemini generated: {content_data}")
-        return content_data
+        print(f"Gemini generated {len(validated_items)} valid item(s) (requested {num_items_to_generate}).")
+        return validated_items
 
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON from Gemini response: {e}")
-        print(f"Raw response was: {response.text}")
+        print(f"Raw response text (at point of error): {cleaned_response_text if 'cleaned_response_text' in locals() else response.text}")
         return None
     except Exception as e:
         print(f"Error during Gemini content generation: {e}")
-        # You might want to inspect response.prompt_feedback here if available
-        # print(f"Prompt feedback: {response.prompt_feedback}")
+        if hasattr(response, 'prompt_feedback'):
+             print(f"Prompt feedback: {response.prompt_feedback}")
+        if hasattr(response, 'candidates') and response.candidates:
+            for candidate in response.candidates:
+                if hasattr(candidate, 'finish_reason') and candidate.finish_reason != 1: # 1 is "STOP"
+                    print(f"Candidate finish reason: {candidate.finish_reason}")
+                    if hasattr(candidate, 'safety_ratings'):
+                        print(f"Safety ratings: {candidate.safety_ratings}")
+        if 'response' in locals() and hasattr(response, 'text'):
+            print(f"Raw response text on error: {response.text}")
         return None
 
 # --- Duplicate Checking (Placeholder - API should ideally handle this, or use direct DB access) ---
@@ -165,62 +198,90 @@ def main():
         "-n", "--num_examples", type=int, default=10,
         help="Number of unique sentence-prompt examples to generate and add."
     )
+    parser.add_argument(
+        "-b", "--batch_size", type=int, default=DEFAULT_BATCH_SIZE,
+        help=f"Number of examples to request from Gemini in a single API call (default: {DEFAULT_BATCH_SIZE})."
+    )
     args = parser.parse_args()
 
     print(f"Starting content generation script. Goal: {args.num_examples} unique examples.")
+    print(f"Requesting items in batches of: {args.batch_size}")
     
     gemini_model = configure_gemini()
     if not gemini_model:
         return
 
     generated_count = 0
-    attempts_total = 0 # To avoid infinite loops if Gemini struggles
+    gemini_api_calls = 0
+    # Safety break: max API calls = (target examples / min items per successful call (assume 1)) * some factor (e.g., 5)
+    # Or more simply, target_examples * safety_factor_per_item
+    max_api_calls = (args.num_examples * 3) // args.batch_size + 5 # Adjusted max calls based on batching
 
-    while generated_count < args.num_examples and attempts_total < args.num_examples * 5: # Safety break
-        attempts_total += 1
-        print(f"--- Attempt {attempts_total} ---")
+    while generated_count < args.num_examples and gemini_api_calls < max_api_calls:
+        gemini_api_calls += 1
+        print(f"\n--- Gemini API Call Attempt {gemini_api_calls}/{max_api_calls} ---")
 
-        # 1. Generate content
-        content_data = generate_content_with_gemini(gemini_model)
-        if not content_data:
-            print("Failed to generate content from Gemini.")
-            continue
+        num_to_request_this_batch = min(args.batch_size, args.num_examples - generated_count)
+        if num_to_request_this_batch <= 0: # Should not happen if loop condition is correct
+            break
 
-        sentence = content_data.get("sentence")
-        target_word = content_data.get("target_word")
-        prompt_text = content_data.get("prompt")
-        difficulty = content_data.get("difficulty")
-
-        if not all([sentence, target_word, prompt_text, difficulty]):
-            print("Generated content is missing required fields. Skipping.")
-            continue
+        content_item_list = generate_multiple_content_items_with_gemini(gemini_model, num_to_request_this_batch)
         
-        if target_word.lower() not in sentence.lower():
-            print(f"Target word '{target_word}' not found in sentence '{sentence}'. Skipping.")
+        if not content_item_list:
+            print("Failed to generate a list of content from Gemini or list was empty/invalid. Retrying after delay...")
+            time.sleep(RETRY_DELAY_SECONDS)
             continue
 
-        # 2. Check for duplicates using direct DB access
-        if check_for_duplicate_db(sentence, target_word, prompt_text):
-            print(f"Duplicate found in DB for: {sentence[:30]}... Skipping.")
-            continue
-        
-        # 3. Add to database via API
-        api_response = add_sentence_prompt_api(sentence, target_word, prompt_text, difficulty)
+        items_processed_this_batch = 0
+        for item_data in content_item_list:
+            if generated_count >= args.num_examples:
+                break # Reached target, no need to process more from this batch
 
-        if api_response:
-            generated_count += 1
-            print(f"Successfully generated and added example {generated_count}/{args.num_examples}.")
-        else:
-            # API call failed or indicated a problem (e.g., duplicate if API handles that)
-            print(f"Failed to add example via API or it was a duplicate.")
-        
-        if generated_count < args.num_examples:
-            time.sleep(2) # Small delay between generations
+            items_processed_this_batch +=1
+            print(f"Processing item {items_processed_this_batch}/{len(content_item_list)} from batch...")
 
-    print(f"--- Script Finished ---")
-    print(f"Successfully generated and added {generated_count} unique examples.")
-    if attempts_total >= args.num_examples * 5:
-        print("Reached maximum attempts. There might be issues with generation or finding unique content.")
+            sentence = item_data.get("sentence")
+            target_word = item_data.get("target_word")
+            prompt_text = item_data.get("prompt")
+            difficulty = item_data.get("difficulty")
+
+            # Individual item validation (already partially done in generation function)
+            if not all([sentence, target_word, prompt_text, isinstance(difficulty, int)]):
+                print(f"Generated item is missing required fields or has incorrect types: {item_data}. Skipping.")
+                continue
+            
+            if target_word.lower() not in sentence.lower():
+                print(f"Target word '{target_word}' not found (case-insensitive) in sentence '{sentence}'. Skipping.")
+                print(f"Problematic Gemini data: {item_data}")
+                continue
+
+            if check_for_duplicate_db(sentence, target_word, prompt_text):
+                print(f"Duplicate found in DB for: {sentence[:30]}... Skipping.")
+                continue
+            
+            api_response = add_sentence_prompt_api(sentence, target_word, prompt_text, difficulty)
+
+            if api_response:
+                generated_count += 1
+                print(f"Successfully generated and added example {generated_count}/{args.num_examples}.")
+            else:
+                print(f"Failed to add item via API (sentence: {sentence[:30]}...). May be duplicate at API level or other error.")
+            
+            if generated_count < args.num_examples: # Small delay between API posts, even within a batch
+                time.sleep(1) 
+
+        if generated_count < args.num_examples and items_processed_this_batch == len(content_item_list):
+            # If we processed the whole batch but still need more, small delay before next Gemini call
+            print(f"Batch processed. Current count: {generated_count}/{args.num_examples}. Continuing...")
+            if len(content_item_list) < num_to_request_this_batch :
+                 print(f"Note: Gemini returned fewer items ({len(content_item_list)}) than requested ({num_to_request_this_batch}).")
+            time.sleep(2) # Delay before next big API call to Gemini
+
+    print(f"\n--- Script Finished ---")
+    print(f"Total Gemini API calls made: {gemini_api_calls}")
+    print(f"Successfully generated and added {generated_count} unique examples out of {args.num_examples} requested.")
+    if gemini_api_calls >= max_api_calls and generated_count < args.num_examples:
+        print(f"Reached maximum API call attempts ({gemini_api_calls}). There might be issues with generation, finding unique content, or API errors.")
 
 if __name__ == "__main__":
     main()

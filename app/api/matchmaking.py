@@ -16,6 +16,7 @@ router = APIRouter()
 class MatchmakingStatusResponse(BaseModel):
     status: str
     game_id: str | None = None
+    game_language: str | None = None
     opponent_name: str | None = None
     player1_id: int | None = None
     player2_id: int | None = None
@@ -29,6 +30,7 @@ player_match_status: dict[int, MatchmakingStatusResponse] = {}
 async def find_match(
     # Simulate client sending its ID and username - replace with auth in real app
     current_user: UserPublic = Depends(deps.get_current_active_user), # USE AUTHENTICATED USER
+    requested_language: str | None = Query(None, description="Preferred BCP-47 language code for the game (e.g., 'en', 'es'). Defaults to server default if not specified."),
     db: Session = Depends(deps.get_db)
 ):
     """
@@ -52,40 +54,51 @@ async def find_match(
     if user_id in player_match_status and player_match_status[user_id].status == "matched":
         current_status = player_match_status[user_id]
         # Populate IDs if not already (should be done when match is made)
-        if current_status.game_id and not current_status.player1_id:
-             game_info_for_ws = matchmaking_service.get_game_info(current_status.game_id)
-             if game_info_for_ws and "players" in game_info_for_ws:
-                 p_ids = game_info_for_ws["players"]
-                 current_status.player1_id = p_ids[0]
-                 current_status.player2_id = p_ids[1]
-                 current_status.your_player_id_in_game = user_id # Redundant but clear
-        return current_status
+        if current_status.game_id and matchmaking_service.get_game_info(current_status.game_id):
+            return current_status
+        else:
+            del player_match_status[user_id]  # Remove stale match status
+
 
     is_waiting = matchmaking_service.is_player_waiting(user_id)
-
     if not is_waiting and user_id not in player_match_status:
-        print(f"Adding player '{current_user.username}' (DB ID: {user_id}) to matchmaking pool.")
-        matchmaking_service.add_player_to_matchmaking_pool(current_user) # Pass UserPublic
+        print(f"Adding player '{current_user.username}' (DB ID: {user_id}) to matchmaking pool for lang '{requested_language or matchmaking_service.DEFAULT_GAME_LANGUAGE}.")
+        matchmaking_service.add_player_to_matchmaking_pool(current_user, requested_language=requested_language)
         player_match_status[user_id] = MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id)
 
     match_result = matchmaking_service.try_match_players()
     if match_result:
-        game_id, p1, p2 = match_result # p1, p2 are UserPublic objects
-        print(f"Match found: {game_id} for {p1.username} (ID: {p1.id}) vs {p2.username} (ID: {p2.id})")
+        game_id, p1, p2, game_lang  = match_result # p1, p2 are UserPublic objects
+        print(f"Match found via /find: {game_id} (Lang: {game_lang}) for {p1.username} vs {p2.username}")
         
         player_match_status[p1.id] = MatchmakingStatusResponse(
-            status="matched", game_id=game_id, opponent_name=p2.username,
+            status="matched", game_id=game_id, game_language=game_lang, opponent_name=p2.username,
             player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p1.id
         )
         player_match_status[p2.id] = MatchmakingStatusResponse(
-            status="matched", game_id=game_id, opponent_name=p1.username,
+            status="matched", game_id=game_id, game_language=game_lang, opponent_name=p1.username,
             player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p2.id
         )
 
-    return player_match_status.get(
-        user_id,
-        MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id)
-    )
+    # If user is still waiting (either wasn't matched, or the match involved other players)
+    if matchmaking_service.is_player_waiting(user_id):
+         waiting_response = MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id, game_language=(requested_language or matchmaking_service.DEFAULT_GAME_LANGUAGE))
+         player_match_status[user_id] = waiting_response # Cache waiting status
+         return waiting_response
+    
+    # If user is not waiting and not matched (e.g. cancelled, or error state)
+    # This path should ideally not be hit if `is_player_waiting` is accurate or they are matched.
+    # However, as a fallback:
+    if user_id in player_match_status: # They were matched, but the current request didn't re-trigger that
+        return player_match_status[user_id]
+
+    # Default fallback if something unexpected happened
+    return MatchmakingStatusResponse(status="error", message="Could not determine matchmaking status.")
+
+    # return player_match_status.get(
+    #     user_id,
+    #     MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id)
+    # )
 
 @router.post("/cancel")
 async def cancel_matchmaking(

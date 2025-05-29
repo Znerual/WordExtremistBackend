@@ -13,6 +13,7 @@ class Game(Base):
     # For simplicity, we'll assume the matchmaking_service.game_id (string) will be stored here.
     # If you want to use the integer id as the primary key and still store the string game_id:
     matchmaking_game_id = Column(String, unique=True, index=True, nullable=False)
+    language = Column(String(2), default="en", nullable=False, index=True) # Added language field
 
     start_time = Column(DateTime(timezone=True), server_default=func.now())
     end_time = Column(DateTime(timezone=True), nullable=True)

@@ -8,6 +8,7 @@ class SentencePromptPublic(BaseModel):
     target_word: str
     prompt_text: str
     difficulty: int
+    language: str = Field(default="en", max_length=2)  # ISO 639-1 language code
 
     class Config:
         from_attributes = True
@@ -21,6 +22,8 @@ class GameStatePlayer(BaseModel):
 
 class GameState(BaseModel):
     game_id: str
+    db_game_id: int | None = None # The ID from the 'games' table in the database
+    language: str = "en"
     players: Dict[int, GameStatePlayer] # player_id -> PlayerState
     current_player_id: int | None = None
     current_round: int = 1
@@ -31,6 +34,7 @@ class GameState(BaseModel):
     # Timers might be managed client-side but server can validate/enforce
     last_action_timestamp: float | None = None
     status: str = "starting"
+    matchmaking_player_order: List[int] = []
 
 
 class PlayerAction(BaseModel):

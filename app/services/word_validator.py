@@ -28,7 +28,8 @@ def validate_word_against_prompt(
     sentence_prompt_id: int,
     target_word: str, # From the current prompt object
     prompt_text: str, # From the current prompt object
-    sentence_text: str # From the current prompt object
+    sentence_text: str, # From the current prompt object,
+    language: str = "en", # Default language, can be overridden
     # game_db_id: int, # Not adding these yet as per instruction
     # round_number: int,
     # user_id: int,
@@ -78,7 +79,7 @@ def validate_word_against_prompt(
         return WordValidationResult(is_valid=False, creativity_score=None, error_message=f"Gemini client configuration error: {e}")
 
     gemini_prompt_text = f"""
-You are a word game judge. Given a sentence, a target word within that sentence,
+You are a word game judge. The game content is in the language with code '{language}'. Given a sentence, a target word within that sentence,
 a prompt for modifying the target word, and a submitted word from a player,
 determine if the submitted word is valid according to the prompt and how creative it is.
 

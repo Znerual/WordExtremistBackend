@@ -4,12 +4,12 @@ from app.schemas.game_log import Game, GamePlayer, WordSubmission
 from app.schemas.user import User # To type hint
 import datetime
 
-def create_game_record(db: Session, matchmaking_game_id: str, player1_id: int, player2_id: int) -> Game:
+def create_game_record(db: Session, matchmaking_game_id: str, player1_id: int, player2_id: int, language: str = "en") -> Game:
     """
     Creates a new game record and associated player records.
     Returns the persisted Game object.
     """
-    db_game = Game(matchmaking_game_id=matchmaking_game_id, status="in_progress")
+    db_game = Game(matchmaking_game_id=matchmaking_game_id, language=language, status="in_progress")
     db.add(db_game)
     # We need to flush to get db_game.id if it's auto-incremented by DB before creating GamePlayer
     db.flush() 
@@ -85,13 +85,16 @@ def update_game_details(
     game_db_id: int, 
     matchmaking_game_id: str, 
     status: str, 
-    winner_user_id: Optional[int]
+    winner_user_id: Optional[int],
+    language: Optional[str] = None # Allow admin to edit language (less common for active games
 ) -> Game | None:
     db_game = get_game_by_id(db, game_db_id)
     if db_game:
         db_game.matchmaking_game_id = matchmaking_game_id
         db_game.status = status
         db_game.winner_user_id = winner_user_id
+        if language: # Only update if provided
+            db_game.language = language
         # Note: start_time and end_time might need specific handling if editable
         # For simplicity, not making them directly editable via simple text fields here
         # as they are datetime objects.

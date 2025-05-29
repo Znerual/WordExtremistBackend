@@ -30,6 +30,7 @@ class WordSubmissionPublic(BaseModel):
 class GamePublic(BaseModel):
     id: int
     matchmaking_game_id: str
+    language: str # Added language field
     winner_user_id: Optional[int] = None
     status: str
     start_time: Optional[datetime] = None

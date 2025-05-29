@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, status, Query
 from starlette.websockets import WebSocketState
 from sqlalchemy.orm import Session
-from typing import Dict, List
+from typing import Dict, List, Optional
 from app.api import deps
 from app.models.user import UserPublic
 from app.services import matchmaking_service, game_service
@@ -73,12 +73,15 @@ class GameConnectionManager:
 
 	async def _send_json_safe(self, connection: WebSocket, message: dict, user_id: int, game_id: str): # Use user_id (int)
 		try:
-			await connection.send_json(message)
+			if connection.client_state == WebSocketState.CONNECTED:
+				await connection.send_json(message)
+			else: # Connection closed before sending
+				print(f"WS for P:{user_id} G:{game_id} was already closed before sending {message.get('type')}. Disconnecting from manager.")
+				self.disconnect(game_id, user_id) # Ensure manager cleanup
 		except Exception as e:
 			print(f"Error sending message to {user_id} in game {game_id}: {e}. Disconnecting.")
-			self.disconnect(game_id, user_id) # Use user_id
-			await self.broadcast_to_game(game_id, {"type": "player_disconnected", "player_id": user_id}, exclude_player_id=user_id) # Use user_id
-
+			self.disconnect(game_id, user_id) # Ensure manager cleanup on send error
+			# No need to broadcast player_disconnected here, as handle_player_disconnect will do it via game_service
 
 game_manager = GameConnectionManager()
 
@@ -103,84 +106,63 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 		return
 	print(f"Connection attempt: P:{player_id_of_this_connection} G:{game_id}")
 
-	matchmaking_game_info = matchmaking_service.get_game_info(game_id)
-	if not matchmaking_game_info:
-		print(f"G:{game_id} not found in matchmaking. Closing WS for P:{player_id_of_this_connection}.")
-		await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Game not found")
+	initial_game_state_from_matchmaking: Optional[GameState] = matchmaking_service.get_game_info(game_id)
+
+	if not initial_game_state_from_matchmaking:
+		print(f"G:{game_id} not found in matchmaking_service. Closing WS for P:{player_id_of_this_connection}.")
+		await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Game not found or already cleaned up")
 		return
-	if player_id_of_this_connection not in matchmaking_game_info.get("players", []):
-		print(f"P:{player_id_of_this_connection} not in G:{game_id} players: {matchmaking_game_info.get('players', [])}. Closing WS.")
-		await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Player not in game")
+
+	# Validate player is part of this game
+	# The player IDs are now stored in _temp_player_ids_ordered during "matched" state
+	expected_player_ids = getattr(initial_game_state_from_matchmaking, '_temp_player_ids_ordered', []) \
+						  if initial_game_state_from_matchmaking.status == "matched" \
+						  else list(initial_game_state_from_matchmaking.players.keys())
+
+	if player_id_of_this_connection not in expected_player_ids:
+		print(f"P:{player_id_of_this_connection} not in G:{game_id} expected players: {expected_player_ids}. Closing WS.")
+		await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Player not authorized for this game")
 		return
 
 	await game_manager.connect(websocket, game_id, player_id_of_this_connection)
 	
 	events_to_send: List[game_service.GameEvent] = []
+	current_game_state_model: Optional[GameState] = None # Will hold the authoritative GameState Pydantic model
+	
 	try:
-		current_game_state_dict = matchmaking_service.get_full_game_state(game_id)
+		current_game_state_model = matchmaking_service.get_full_game_state(game_id)
+		if not current_game_state_model: # Should not happen if get_game_info succeeded
+			print(f"CRITICAL: G:{game_id} info disappeared after initial fetch. Closing WS for P:{player_id_of_this_connection}")
+			await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Game data inconsistency")
+			return
 
-		if not current_game_state_dict or current_game_state_dict.get("status") == "matched":
+		if current_game_state_model.status == "matched": # Game needs initialization
 			if len(game_manager.active_connections.get(game_id, {})) == 2:
-				# Both players connected, time to initialize the game state fully
-				# Re-fetch state to avoid race conditions if another connection initialized it.
-				current_game_state_dict = matchmaking_service.get_full_game_state(game_id)
-				if not current_game_state_dict or current_game_state_dict.get("status") != "in_progress":
-					print(f"G:{game_id} both players connected. Initializing game state.")
-					initial_sentence = crud_game_content.get_random_sentence_prompt(db)
-					if not initial_sentence:
-						err_event = game_service.GameEvent(
-							"error_message_broadcast", 
-							{"message": "Failed to load game content."}, 
-							broadcast=True
-						)
-						await game_manager._send_event(err_event, game_id)
-						# Close connections as game cannot start
-						for pid_close in list(game_manager.active_connections.get(game_id,{}).keys()):
-							ws_close = game_manager.active_connections.get(game_id,{}).get(pid_close)
-							if ws_close and ws_close.client_state != WebSocketState.DISCONNECTED:
-								await ws_close.close(code=status.WS_1011_INTERNAL_ERROR, reason="Game content error")
-						matchmaking_service.cleanup_game(game_id) # Remove game if content fails
-						return
-
-					current_game_state_dict, game_start_events = game_service.initialize_new_game_state(
-						game_id, matchmaking_game_info, SentencePromptPublic.model_validate(initial_sentence), db
-					)
-					matchmaking_service.update_game_state(game_id, current_game_state_dict) # Persist initialized state
+				print(f"G:{game_id} both players connected. Initializing full game state (lang: {current_game_state_model.language}).")
+				# Pass the GameState object from matchmaking to be populated
+				current_game_state_model, game_start_events = game_service.initialize_new_game_state(
+					game_id, current_game_state_model, db
+				)
+				if current_game_state_model.status == "error_content_load": # Content load failed
+					events_to_send.extend(game_start_events) # Send error event
+					# Websocket loop will break, and finally block will clean up.
+				else:
+					matchmaking_service.update_game_state(game_id, current_game_state_model)
 					events_to_send.extend(game_start_events)
-				else: # Game was already initialized by the other player's connection
-					print(f"G:{game_id} already in_progress. P:{player_id_of_this_connection} is reconnecting/joining.")
-					reconnect_event = game_service.prepare_reconnect_state_payload(game_id, current_game_state_dict, player_id_of_this_connection)
-					events_to_send.append(reconnect_event)
-
 			else: # Only one player connected to a "matched" game
 				status_event = game_service.GameEvent("status", {"message": "Waiting for opponent..."}, target_player_id=player_id_of_this_connection)
 				events_to_send.append(status_event)
 		
-		elif current_game_state_dict.get("status") == "in_progress": # Reconnecting to an active game
-			print(f"P:{player_id_of_this_connection} reconnected to G:{game_id} (in_progress). Sending state.")
-			reconnect_event = game_service.prepare_reconnect_state_payload(game_id, current_game_state_dict, player_id_of_this_connection)
+		elif current_game_state_model.status == "in_progress":
+			print(f"P:{player_id_of_this_connection} reconnected to G:{game_id} (in_progress, lang: {current_game_state_model.language}). Sending state.")
+			reconnect_event = game_service.prepare_reconnect_state_payload(game_id, current_game_state_model, player_id_of_this_connection)
 			events_to_send.append(reconnect_event)
 		
-		elif current_game_state_dict.get("status") == "finished" or current_game_state_dict.get("status", "").startswith("error"):
-			print(f"P:{player_id_of_this_connection} connected to G:{game_id} but status is '{current_game_state_dict.get('status')}'. Sending game over/error.")
-			# Send a game_over or error message if game is already concluded or errored
-			# This needs specific logic based on how you want to handle reconnects to finished games.
-			# For now, just send a generic message.
-			final_status_payload = {"message": f"Game already ended with status: {current_game_state_dict.get('status')}."}
-			if current_game_state_dict.get("status") == "finished":
-				p1_final_id = current_game_state_dict["matchmaking_player_order"][0]
-				p2_final_id = current_game_state_dict["matchmaking_player_order"][1]
-				final_status_payload = { # Mimic game_over payload structure
-					"game_winner_id": str(current_game_state_dict.get("game_winner_id")) if current_game_state_dict.get("game_winner_id") else None, # Assuming winner is stored
-					"player1_server_id": str(p1_final_id), 
-					"player2_server_id": str(p2_final_id),
-					"player1_final_score": current_game_state_dict["players"][p1_final_id]["score"], 
-					"player2_final_score": current_game_state_dict["players"][p2_final_id]["score"],
-				}
-				events_to_send.append(game_service.GameEvent("game_over", final_status_payload, target_player_id=player_id_of_this_connection))
-
-			else: # Error state
-				events_to_send.append(game_service.GameEvent("error_message_to_player", final_status_payload, target_player_id=player_id_of_this_connection))
+		elif current_game_state_model.status in ["finished", "abandoned_by_player", "error_content_load"]:
+			print(f"P:{player_id_of_this_connection} connected to G:{game_id} but status is '{current_game_state_model.status}'. Sending final state.")
+			# Send a game_over or error message
+			final_event = game_service.prepare_reconnect_state_payload(game_id, current_game_state_model, player_id_of_this_connection) # This sends full state
+			events_to_send.append(final_event) # Client can determine from game_active=false or status
 
 
 		# Send any initial events (game_start, reconnect_state, status)
@@ -189,103 +171,104 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 		events_to_send.clear()
 
 
+		if not current_game_state_model or current_game_state_model.status != "in_progress":
+			# If game isn't in progress after initial setup (e.g. error, already finished, waiting for opponent),
+			# client has been informed. No need to enter main action loop for this connection if game not active for them.
+			# The client should handle this and may choose to disconnect or wait for updates.
+			# For "waiting for opponent", the loop below could be skipped until game starts.
+			# For "error_content_load" or "finished", the client should disconnect after receiving state.
+			# We keep the connection open to allow for "status" updates if one player is waiting.
+			if current_game_state_model and current_game_state_model.status != "waiting_for_opponent": # A hypothetical status
+				 # If game truly cannot proceed for this player (error, finished), we can close from server.
+				if current_game_state_model.status in ["error_content_load", "finished", "abandoned_by_player"]:
+					print(f"G:{game_id} not playable for P:{player_id_of_this_connection} (status: {current_game_state_model.status}). Not entering action loop.")
+					# Connection will be closed in finally block
+					return # Exit the handler
+
 		# Main loop for receiving player actions
 		while True:
 			if websocket.client_state != WebSocketState.CONNECTED:
 				print(f"P:{player_id_of_this_connection} G:{game_id} - WebSocket no longer connected in main loop. Breaking.")
 				break # Exit loop if connection is no longer valid
 
+			# Fetch the latest authoritative state before processing any action
+			# This ensures we're working with the most current version, potentially updated by opponent
+			live_game_state_model = matchmaking_service.get_full_game_state(game_id)
+			if not live_game_state_model:
+				print(f"G:{game_id} state disappeared during P:{player_id_of_this_connection}'s turn. Breaking loop.")
+				await game_manager.send_to_player(game_id, player_id_of_this_connection, {"type": "error", "message": "Game session ended unexpectedly."})
+				break
+			if live_game_state_model.status != "in_progress":
+				print(f"G:{game_id} not 'in_progress' (is {live_game_state_model.status}). Ignoring action from P:{player_id_of_this_connection}.")
+				final_state_event = game_service.prepare_reconnect_state_payload(game_id, live_game_state_model, player_id_of_this_connection)
+				await game_manager.send_to_player(game_id, player_id_of_this_connection, final_state_event.to_dict())
+				if live_game_state_model.status in ["finished", "abandoned_by_player", "error_content_load"]:
+					break # Exit loop if game is conclusively over
+				time.sleep(1) # Brief pause if waiting for opponent to avoid busy loop on client side if it keeps sending
+				continue 
+
 			data = await websocket.receive_json()
 			action_type = data.get("action_type")
 			action_payload_data = data.get("payload", {})
 			
-			# print(f"Action from P:{player_id_of_this_connection} G:{game_id}: {action_type}")
-
-			# Always fetch the latest state before processing any action
-			current_game_state_dict_rt = matchmaking_service.get_full_game_state(game_id)
-			if not current_game_state_dict_rt or current_game_state_dict_rt.get("status") != "in_progress":
-				print(f"G:{game_id} not 'in_progress' (is {current_game_state_dict_rt.get('status')}). Ignoring action '{action_type}' from P:{player_id_of_this_connection}.")
-				# Optionally send an error to the client that the game is over / not active
-				if current_game_state_dict_rt and current_game_state_dict_rt.get("status") == "finished":
-					p1f_id = current_game_state_dict_rt["matchmaking_player_order"][0]
-					p2f_id = current_game_state_dict_rt["matchmaking_player_order"][1]
-					game_over_payload_rt = {
-						"game_winner_id": str(current_game_state_dict_rt.get("game_winner_id")) if current_game_state_dict_rt.get("game_winner_id") else None,
-						"player1_server_id": str(p1f_id), "player2_server_id": str(p2f_id),
-						"player1_final_score": current_game_state_dict_rt["players"][p1f_id]["score"], 
-						"player2_final_score": current_game_state_dict_rt["players"][p2f_id]["score"],
-					}
-					await game_manager.send_to_player(game_id, player_id_of_this_connection, game_service.GameEvent("game_over", game_over_payload_rt).to_dict())
-				else:
-					await game_manager.send_to_player(game_id, player_id_of_this_connection, {"type": "error", "message": "Game is not currently active or has ended."})
-				continue 
-
-			# Process action using game_service
-			updated_game_state, resulting_events = game_service.process_player_game_action(
-				current_game_state_dict_rt, # Pass the mutable dict
+			updated_game_state_model, resulting_events = game_service.process_player_game_action(
+				live_game_state_model, # Pass the Pydantic model
 				player_id_of_this_connection,
 				action_type,
 				action_payload_data,
 				db
 			)
 			
-			# Persist the state potentially modified by game_service
-			matchmaking_service.update_game_state(game_id, updated_game_state)
+			matchmaking_service.update_game_state(game_id, updated_game_state_model) # Persist the updated Pydantic model
 			
-			# Send out all events generated by the action
 			for event_item in resulting_events:
 				await game_manager._send_event(event_item, game_id)
 			
-			# If game status changed to finished or error, break loop (client will be informed by event)
-			if updated_game_state.get("status") != "in_progress":
-				print(f"G:{game_id} status changed to '{updated_game_state.get('status')}' after action. P:{player_id_of_this_connection} WS loop might end.")
-				# Consider if we should explicitly break or wait for client to disconnect.
-				# If a "game_over" or "error_message_broadcast" (that implies game end) was sent,
-				# the client should handle it. Loop can continue to listen for potential stray messages or disconnect.
-				# However, if game content load error, game should end.
-				if updated_game_state.get("status") == "error_content_load":
-					print(f"G:{game_id} Content load error. Breaking WS loop for P:{player_id_of_this_connection}")
-					break
-
+			if updated_game_state_model.status != "in_progress":
+				print(f"G:{game_id} status changed to '{updated_game_state_model.status}'. P:{player_id_of_this_connection} WS loop might end.")
+				if updated_game_state_model.status in ["error_content_load", "finished", "abandoned_by_player"]:
+					break # Exit loop
 
 	except WebSocketDisconnect:
 		print(f"WS Disconnected: P:{player_id_of_this_connection} G:{game_id}. Client state: {websocket.client_state}")
-		# Game service handles disconnect logic and generates events
-		current_gs_on_dc = matchmaking_service.get_full_game_state(game_id)
-		if current_gs_on_dc: # Only process if game state exists
-			updated_gs_after_dc, dc_events = game_service.handle_player_disconnect(
-				current_gs_on_dc, player_id_of_this_connection, db
-			)
-			if dc_events: # Only update and send if there were consequential events
-				matchmaking_service.update_game_state(game_id, updated_gs_after_dc)
-				for ev_dc in dc_events:
-					await game_manager._send_event(ev_dc, game_id)
+		# Fetch current state before processing disconnect to avoid race conditions
+		gs_on_dc = matchmaking_service.get_full_game_state(game_id)
+		if gs_on_dc : # Only process if game state exists and game was active for this player
+			# Avoid processing disconnect if player was just connected to an already finished game
+			if gs_on_dc.status == "in_progress" or (gs_on_dc.status == "matched" and len(gs_on_dc._temp_player_ids_ordered) > 0):
+				updated_gs_after_dc, dc_events = game_service.handle_player_disconnect(
+					gs_on_dc, player_id_of_this_connection, db
+				)
+				if dc_events: 
+					matchmaking_service.update_game_state(game_id, updated_gs_after_dc)
+					for ev_dc in dc_events:
+						await game_manager._send_event(ev_dc, game_id) # Use game_id from closure
+			else:
+				print(f"P:{player_id_of_this_connection} disconnected from G:{game_id} but game status was '{gs_on_dc.status}'. No disconnect logic run.")
 		else:
 			print(f"G:{game_id} state not found on P:{player_id_of_this_connection} disconnect. No further action.")
-		# disconnect from manager handled in finally
 	
 	except Exception as e:
 		print(f"!!! UNEXPECTED ERROR in WS G:{game_id} P:{player_id_of_this_connection}: {type(e).__name__} - {e} !!!")
 		import traceback
 		traceback.print_exc()
-		# Attempt to inform client of server error if possible
 		if websocket.client_state == WebSocketState.CONNECTED:
-			try:
-				await websocket.send_json({"type": "error", "payload": {"message": f"Internal server error: {type(e).__name__}"}})
-			except Exception: pass # Best effort
-		# disconnect from manager handled in finally
-
+			try: await websocket.send_json({"type": "error", "payload": {"message": f"Internal server error: {type(e).__name__}"}})
+			except Exception: pass
+	
 	finally:
 		print(f"Finally block for P:{player_id_of_this_connection} G:{game_id}. WS State: {websocket.client_state}")
-		# Ensure graceful close if not already closed by FastAPI/uvicorn or an explicit error
 		if websocket.client_state != WebSocketState.DISCONNECTED:
 			try:
 				await websocket.close(code=status.WS_1001_GOING_AWAY)
 				print(f"Gracefully closed WS for P:{player_id_of_this_connection} G:{game_id} in finally.")
-			except RuntimeError as re: # Can happen if already closing
-				print(f"RuntimeError closing WS for P:{player_id_of_this_connection} G:{game_id} in finally: {re} (likely already closing/closed)")
-			except Exception as close_e:
-				print(f"Error closing WS for P:{player_id_of_this_connection} G:{game_id} in finally: {close_e}")
+			except RuntimeError as re: print(f"RuntimeError closing WS (P:{player_id_of_this_connection} G:{game_id}) in finally: {re}")
+			except Exception as close_e: print(f"Error closing WS (P:{player_id_of_this_connection} G:{game_id}) in finally: {close_e}")
 		
-		game_manager.disconnect(game_id, player_id_of_this_connection)
-		print(f"Exited WS handler for P:{player_id_of_this_connection} G:{game_id}. Remaining conns for G:{game_id}: {list(game_manager.active_connections.get(game_id, {}).keys())}")
+		game_manager.disconnect(game_id, player_id_of_this_connection) # Use game_id from closure
+		# Check if game should be fully cleaned up if no connections remain and game is over
+		# This is partially handled in game_manager.disconnect -> matchmaking_service.cleanup_game
+		# if game_id in game_manager.active_connections and not game_manager.active_connections[game_id]:
+		#      gs_final_check = matchmaking_service.get_full_game_state(game_id)
+		#      if gs_final_check and gs_final_check.status != "in_progress":
+		#           matchmaking_service.cleanup_game(game_id)

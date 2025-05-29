@@ -9,6 +9,7 @@ class SentencePrompt(Base):
     target_word = Column(String, nullable=False) # The word to be replaced
     prompt_text = Column(String, nullable=False) # e.g., "BE MORE EXTREME"
     difficulty = Column(Integer, default=1) # Optional
+    language = Column(String(2), default="en", nullable=False, index=True)
     # category = Column(String) # Optional
 
 # Removed SentencePromptCreate class

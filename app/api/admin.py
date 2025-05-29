@@ -216,7 +216,8 @@ async def handle_add_sentence_prompt(
     sentence_text: str = Form(...),
     target_word: str = Form(...),
     prompt_text: str = Form(...),
-    difficulty: Optional[int] = Form(1) # Default to 1 if not provided
+    difficulty: Optional[int] = Form(1), # Default to 1 if not provided
+    language: Optional[str] = Form("en") # Default to English, can be extended later
 ):
     """Handles the form submission for adding a new sentence prompt."""
     try:
@@ -237,7 +238,8 @@ async def handle_add_sentence_prompt(
             sentence_text=sentence_text,
             target_word=target_word,
             prompt_text=prompt_text,
-            difficulty=difficulty # Pass difficulty here
+            difficulty=difficulty,
+            language=language
         )
         # Ensure crud_game_content.create_sentence_prompt handles difficulty
 
@@ -286,7 +288,8 @@ async def api_create_sentence_prompt(
         sentence_text=sentence_prompt_data.sentence_text,
         target_word=sentence_prompt_data.target_word,
         prompt_text=sentence_prompt_data.prompt_text,
-        difficulty=sentence_prompt_data.difficulty
+        difficulty=sentence_prompt_data.difficulty,
+        language=sentence_prompt_data.language
     )
     
     # FastAPI will automatically convert the SQLAlchemy model (SentencePromptModel)
@@ -377,6 +380,7 @@ async def handle_edit_game(
     db: Session = Depends(deps.get_db),
     matchmaking_game_id: str = Form(...),
     status: str = Form(...),
+    language: Optional[str] = Form(None), # Optional language field
     winner_user_id: Optional[int] = Form(None)
 ):
     form_data = await request.form()
@@ -386,6 +390,7 @@ async def handle_edit_game(
             game_db_id=game_db_id,
             matchmaking_game_id=matchmaking_game_id,
             status=status,
+            language=language, # Allow admin to edit language
             winner_user_id=winner_user_id if winner_user_id is not None else None # Handle empty string from form
         )
         if not updated_game:

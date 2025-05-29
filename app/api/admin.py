@@ -194,7 +194,7 @@ async def show_add_sentence_prompt_form(
     # For now, let's assume a function get_latest_sentence_prompts exists or adapt
     try:
         # Crude way to get last 5 for now, ideally add a proper CRUD function
-        db_prompts = db.query(SentencePromptSchema).order_by(SentencePromptSchema.id.desc()).limit(5).all()
+        db_prompts = db.query(SentencePromptModel).order_by(SentencePromptModel.id.desc()).limit(5).all()
         prompts_public = [SentencePromptPublic.model_validate(p) for p in db_prompts] # Ensure this uses the correct model
     except Exception as e:
         print(f"Error fetching existing prompts: {e}")
@@ -234,9 +234,6 @@ async def handle_add_sentence_prompt(
 
         created_prompt = crud_game_content.create_sentence_prompt(
             db=db,
-            sentence_text=sentence_text,
-            target_word=target_word,
-            prompt_text=prompt_text,
             sentence_text=sentence_text,
             target_word=target_word,
             prompt_text=prompt_text,

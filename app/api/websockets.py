@@ -115,12 +115,13 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 
 	# Validate player is part of this game
 	# The player IDs are now stored in _temp_player_ids_ordered during "matched" state
-	expected_player_ids = getattr(initial_game_state_from_matchmaking, '_temp_player_ids_ordered', []) \
+	expected_player_ids = getattr(initial_game_state_from_matchmaking, 'matchmaking_player_order', []) \
 						  if initial_game_state_from_matchmaking.status == "matched" \
 						  else list(initial_game_state_from_matchmaking.players.keys())
 
 	if player_id_of_this_connection not in expected_player_ids:
 		print(f"P:{player_id_of_this_connection} not in G:{game_id} expected players: {expected_player_ids}. Closing WS.")
+		print(initial_game_state_from_matchmaking)
 		await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Player not authorized for this game")
 		return
 
@@ -171,19 +172,10 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 		events_to_send.clear()
 
 
-		if not current_game_state_model or current_game_state_model.status != "in_progress":
-			# If game isn't in progress after initial setup (e.g. error, already finished, waiting for opponent),
-			# client has been informed. No need to enter main action loop for this connection if game not active for them.
-			# The client should handle this and may choose to disconnect or wait for updates.
-			# For "waiting for opponent", the loop below could be skipped until game starts.
-			# For "error_content_load" or "finished", the client should disconnect after receiving state.
-			# We keep the connection open to allow for "status" updates if one player is waiting.
-			if current_game_state_model and current_game_state_model.status != "waiting_for_opponent": # A hypothetical status
-				 # If game truly cannot proceed for this player (error, finished), we can close from server.
-				if current_game_state_model.status in ["error_content_load", "finished", "abandoned_by_player"]:
-					print(f"G:{game_id} not playable for P:{player_id_of_this_connection} (status: {current_game_state_model.status}). Not entering action loop.")
-					# Connection will be closed in finally block
-					return # Exit the handler
+		current_game_state_model = matchmaking_service.get_full_game_state(game_id)
+		if not current_game_state_model:
+			print(f"G:{game_id} - State unavailable after initial events. Closing P:{player_id_of_this_connection}")
+			return
 
 		# Main loop for receiving player actions
 		while True:
@@ -193,26 +185,54 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 
 			# Fetch the latest authoritative state before processing any action
 			# This ensures we're working with the most current version, potentially updated by opponent
-			live_game_state_model = matchmaking_service.get_full_game_state(game_id)
-			if not live_game_state_model:
+			if not current_game_state_model:
 				print(f"G:{game_id} state disappeared during P:{player_id_of_this_connection}'s turn. Breaking loop.")
 				await game_manager.send_to_player(game_id, player_id_of_this_connection, {"type": "error", "message": "Game session ended unexpectedly."})
 				break
-			if live_game_state_model.status != "in_progress":
-				print(f"G:{game_id} not 'in_progress' (is {live_game_state_model.status}). Ignoring action from P:{player_id_of_this_connection}.")
-				final_state_event = game_service.prepare_reconnect_state_payload(game_id, live_game_state_model, player_id_of_this_connection)
-				await game_manager.send_to_player(game_id, player_id_of_this_connection, final_state_event.to_dict())
-				if live_game_state_model.status in ["finished", "abandoned_by_player", "error_content_load"]:
-					break # Exit loop if game is conclusively over
-				time.sleep(1) # Brief pause if waiting for opponent to avoid busy loop on client side if it keeps sending
-				continue 
 
-			data = await websocket.receive_json()
+			if current_game_state_model.status != "in_progress":
+				if current_game_state_model.status in ["finished", "abandoned_by_player", "error_content_load"]:
+					print(f"G:{game_id} is terminal ({current_game_state_model.status}). P:{player_id_of_this_connection} loop ending.")
+					# final_event_in_loop = game_service.prepare_reconnect_state_payload(game_id, current_game_state_model, player_id_of_this_connection)
+					# await game_manager.send_to_player(game_id, player_id_of_this_connection, final_event_in_loop.to_dict())
+					# The initial event sending block should have sent this.
+					break # Exit the while loop for this connection
+	
+				print(f"G:{game_id} is '{current_game_state_model.status}'. P:{player_id_of_this_connection} waiting for game to start or client message.")
+				# final_state_event = game_service.prepare_reconnect_state_payload(game_id, current_game_state_model, player_id_of_this_connection)
+				# await game_manager.send_to_player(game_id, player_id_of_this_connection, final_state_event.to_dict())
+				# if current_game_state_model.status in ["finished", "abandoned_by_player", "error_content_load"]:
+				# 	break # Exit loop if game is conclusively over
+				# time.sleep(1) # Brief pause if waiting for opponent to avoid busy loop on client side if it keeps sending
+				# continue 
+
+			try:
+				data = await websocket.receive_json()
+			except WebSocketDisconnect: raise 
+			except Exception as recv_e:
+				print(f"Error receiving JSON from P:{player_id_of_this_connection} G:{game_id}: {recv_e}")
+				break
+
+			latest_gs_model = matchmaking_service.get_full_game_state(game_id)
+			if not latest_gs_model:
+				print(f"G:{game_id} - State unavailable after P:{player_id_of_this_connection} sent action. Game might have ended.")
+				try: await websocket.send_json({"type": "error", "payload": {"message": "Game session no longer available."}})
+				except: pass
+				break
+			current_game_state_model = latest_gs_model # Update our working copy
+
+			if current_game_state_model.status != "in_progress":
+				print(f"G:{game_id} not 'in_progress' (is '{current_game_state_model.status}'). Ignoring action from P:{player_id_of_this_connection} after receive.")
+				# If terminal, client should have already been informed by initial event block or other player's action.
+				# No need to send another game_state_reconnect UNLESS this client missed it.
+				# For "matched" status, if client sends action, we just ignore it and loop to wait for next message.
+				continue # Go back to `websocket.receive_json()`
+
 			action_type = data.get("action_type")
 			action_payload_data = data.get("payload", {})
 			
 			updated_game_state_model, resulting_events = game_service.process_player_game_action(
-				live_game_state_model, # Pass the Pydantic model
+				current_game_state_model, # Pass the Pydantic model
 				player_id_of_this_connection,
 				action_type,
 				action_payload_data,

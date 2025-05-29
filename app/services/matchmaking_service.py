@@ -1,13 +1,13 @@
 # app/services/matchmaking_service.py
 from typing import Dict, List, Optional, Tuple, Set, Any
-from app.models.game import GameState
+from app.models.game import GameState, GameStatePlayer
 from app.models.user import UserPublic
 import uuid
 import time
 
 # In-memory stores for simplicity. For production, use Redis or a DB.
 waiting_players_by_lang: Dict[str, List[UserPublic]] = {}
-active_games: Dict[str, Dict[str, Any]] = {} # game_id -> game_state_object (e.g., GameState Pydantic model)
+active_games: Dict[str, GameState] = {} # game_id -> game_state_object (e.g., GameState Pydantic model)
 
 DEFAULT_GAME_LANGUAGE = "en"
 
@@ -62,23 +62,27 @@ def try_match_players() -> Tuple[str, UserPublic, UserPublic, str] | None:
             player2 = lang_pool.pop(0)
             game_id = f"game_{uuid.uuid4().hex[:12]}" # Shorter UUID for readability
 
+            p1_gs_player = GameStatePlayer(
+                id=player1.id, name=player1.username or f"Player {player1.id}",
+                score=0, mistakes_in_current_round=0, words_played=[]
+            )
+            p2_gs_player = GameStatePlayer(
+                id=player2.id, name=player2.username or f"Player {player2.id}",
+                score=0, mistakes_in_current_round=0, words_played=[]
+            )
+
             # Basic game state, to be fully initialized by game_service on first connection
             # This structure is now based on the GameState Pydantic model
             active_games[game_id] = GameState(
                 game_id=game_id,
                 language=lang_key, # Set the game language
-                players={}, # Will be populated by game_service
+                players={player1.id : p1_gs_player, player2.id : p2_gs_player },
                 status="matched", # Ready for players to connect via WebSocket
-                created_at=time.time(), # Custom field, not in GameState model, for cleanup
-                # Temporary storage for player details until game_service initializes GameStatePlayers
-                _temp_player_details={
-                    player1.id: player1.model_dump(),
-                    player2.id: player2.model_dump()
-                },
-                _temp_player_ids_ordered=[player1.id, player2.id] # Store order from matchmaking
+                last_action_timestamp=time.time(), # Custom field, not in GameState model, for cleanup
+                matchmaking_player_order=[player1.id, player2.id]
             )
             print(f"Matched game {game_id} (lang: {lang_key}) for '{player1.username}' vs '{player2.username}'")
-            
+           
             if not lang_pool: # Cleanup empty list
                 del waiting_players_by_lang[lang_key]
             return game_id, player1, player2, lang_key
@@ -104,7 +108,7 @@ def update_game_state(game_id: str, new_state: GameState): # Expects GameState m
     """Updates the full game state. new_state should be a GameState Pydantic object."""
     if game_id in active_games:
         active_games[game_id] = new_state # Store the Pydantic model directly
-        active_games[game_id].last_updated_timestamp = time.time() # Custom field for management
+        active_games[game_id].last_action_timestamp = time.time() # Custom field for management
     else:
         print(f"Warning: Attempted to update non-existent game: {game_id}")
 

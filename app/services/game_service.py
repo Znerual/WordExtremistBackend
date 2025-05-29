@@ -46,7 +46,6 @@ class GameEvent:
 def initialize_new_game_state(
     game_id: str,
     initial_game_state_from_matchmaking: GameState, # From matchmaking_service.get_game_info()
-    initial_sentence_prompt: SentencePromptPublic,
     db: Session # Required if fetching user details, etc. Not strictly needed if matchmaking_info is complete
 ) -> Tuple[GameState, List[GameEvent]]:
     """
@@ -55,13 +54,11 @@ def initialize_new_game_state(
     """
     events = []
 
+    print(f"Initializing new game state for game ID: {game_id} with players {initial_game_state_from_matchmaking.players}")
+    p1_id = initial_game_state_from_matchmaking.matchmaking_player_order[0]
+    p2_id = initial_game_state_from_matchmaking.matchmaking_player_order[1]
     game_language = initial_game_state_from_matchmaking.language
-    p1_id = initial_game_state_from_matchmaking._temp_player_ids_ordered[0]
-    p2_id = initial_game_state_from_matchmaking._temp_player_ids_ordered[1]
-
-    p1_details_dict = initial_game_state_from_matchmaking._temp_player_details[p1_id]
-    p2_details_dict = initial_game_state_from_matchmaking._temp_player_details[p2_id]
-
+    
     # Fetch initial sentence prompt for the game's language
     initial_sentence_db = crud_game_content.get_random_sentence_prompt(db, language=game_language)
     if not initial_sentence_db:
@@ -77,8 +74,8 @@ def initialize_new_game_state(
         db_game_instance = crud_game_log.create_game_record(
             db, 
             matchmaking_game_id=game_id, # Store the string ID from matchmaking
-            player1_id=p1_id,
-            player2_id=p2_id,
+            player1_id=initial_game_state_from_matchmaking.matchmaking_player_order[0],
+            player2_id=initial_game_state_from_matchmaking.matchmaking_player_order[1],
             language=game_language # Pass language to DB
         )
         db_game_id_for_logging = db_game_instance.id # The integer PK for logging
@@ -94,33 +91,15 @@ def initialize_new_game_state(
         )
         # events.append(error_event) # Add to events list if needed
 
-    p1_gs_player = GameStatePlayer(
-        id=p1_id, name=p1_details_dict.get("username") or f"Player {p1_id}",
-        score=0, mistakes_in_current_round=0, words_played=[]
-    )
-    p2_gs_player = GameStatePlayer(
-        id=p2_id, name=p2_details_dict.get("username") or f"Player {p2_id}",
-        score=0, mistakes_in_current_round=0, words_played=[]
-    )
+    initial_game_state_from_matchmaking.db_game_id = db_game_id_for_logging # Store for logging later
+    initial_game_state_from_matchmaking.status = "in_progress" # Set initial status
+    initial_game_state_from_matchmaking.sentence_prompt = initial_sentence_prompt # Store Pydantic model
+    initial_game_state_from_matchmaking.current_player_id= initial_game_state_from_matchmaking.matchmaking_player_order[0] # P1 starts
+    initial_game_state_from_matchmaking.current_round = 1
+    initial_game_state_from_matchmaking.max_rounds = GAME_MAX_ROUNDS # Set max rounds
+    initial_game_state_from_matchmaking.last_action_timestamp = time.time() # Set initial timestamp
+    initial_game_state_from_matchmaking.words_played_this_round_all = [] # Reset for new game
 
-    # Update the GameState object from matchmaking
-    final_initial_gs = GameState(
-        game_id=game_id,
-        db_game_id=db_game_id_for_logging,
-        language=game_language,
-        players={p1_id: p1_gs_player, p2_id: p2_gs_player},
-        status="in_progress",
-        current_player_id=p1_id, # P1 from matchmaking starts
-        current_round=1,
-        max_rounds=GAME_MAX_ROUNDS,
-        sentence_prompt=initial_sentence_prompt, # Store Pydantic model
-        words_played_this_round_all=[],
-        last_action_timestamp=time.time(),
-        matchmaking_player_order=[p1_id, p2_id] # Store for consistent p1/p2 reference
-    )
-    # Clean up temporary fields from the matchmaking GameState object if they exist
-    if hasattr(final_initial_gs, '_temp_player_details'): delattr(final_initial_gs, '_temp_player_details')
-    if hasattr(final_initial_gs, '_temp_player_ids_ordered'): delattr(final_initial_gs, '_temp_player_ids_ordered')
 
     game_start_payload = {
         "game_id": game_id,
@@ -128,19 +107,19 @@ def initialize_new_game_state(
         "current_sentence": initial_sentence_prompt.sentence_text,
         "prompt": initial_sentence_prompt.prompt_text,
         "word_to_replace": initial_sentence_prompt.target_word,
-        "round": final_initial_gs.current_round,
+        "round": initial_game_state_from_matchmaking.current_round,
         "player1_server_id": str(p1_id),
         "player2_server_id": str(p2_id),
-        "player1_state": p1_gs_player.model_dump(),
-        "player2_state": p2_gs_player.model_dump(),
-        "current_player_id": str(final_initial_gs.current_player_id),
+        "player1_state": initial_game_state_from_matchmaking.players[p1_id].model_dump(),
+        "player2_state": initial_game_state_from_matchmaking.players[p2_id].model_dump(),
+        "current_player_id": str(initial_game_state_from_matchmaking.current_player_id),
         "game_active": True,
-        "max_rounds": final_initial_gs.max_rounds,
-        "last_action_timestamp": final_initial_gs.last_action_timestamp
+        "max_rounds": initial_game_state_from_matchmaking.max_rounds,
+        "last_action_timestamp": initial_game_state_from_matchmaking.last_action_timestamp
     }
     events.append(GameEvent(event_type="game_started", payload=game_start_payload, broadcast=True))
     
-    return final_initial_gs, events
+    return initial_game_state_from_matchmaking, events
 
 
 def prepare_reconnect_state_payload(game_id: str, current_game_state: GameState, target_player_id: int) -> GameEvent:

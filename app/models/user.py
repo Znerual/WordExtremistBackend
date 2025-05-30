@@ -44,6 +44,7 @@ class DeviceLoginRequest(BaseModel):
 class BackendToken(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user: UserPublic | None = None  # Optional: Include user info if needed
 
 class ServerAuthCodeRequest(BaseModel):
     server_auth_code: str

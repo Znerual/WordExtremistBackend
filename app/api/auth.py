@@ -72,7 +72,7 @@ async def login_with_device_credentials(
     access_token = create_access_token(
         data=jwt_payload_data, expires_delta=access_token_expires
     )
-    return BackendToken(access_token=access_token, token_type="bearer")
+    return BackendToken(access_token=access_token, token_type="bearer", user=user)
 
 # --- REMOVE or DEACTIVATE the old /user/get-or-create endpoint ---
 # It's now superseded by /device-login

@@ -9,6 +9,7 @@ class UserBase(BaseModel):
     profile_pic_url: HttpUrl | None = None
     level: int = Field(default=1)
     experience: int = Field(default=0)
+    words_count: int = Field(default=0)
 
 class UserCreateFromPGS(UserBase):
     play_games_player_id: str

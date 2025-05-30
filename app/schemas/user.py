@@ -20,5 +20,6 @@ class User(Base):
     hashed_password = Column(String, nullable=True) # Store the hash of the client-generated password
     level = Column(Integer, default=1, nullable=False)
     experience = Column(Integer, default=0, nullable=False)
+    words_count = Column(Integer, default=0, nullable=False) # Total words submitted by this user
     # Store Google OAuth refresh token securely if you need long-term offline access to PGS APIs
     # google_refresh_token = Column(String, nullable=True)

@@ -61,6 +61,18 @@
                 <input type="checkbox" id="is_active" name="is_active" value="true" {% if user and user.is_active %}checked{% elif not user %}checked{% endif %}>
                 <label for="is_active" style="display:inline; font-weight:normal;">Is Active</label>
             </div>
+            <div class="form-group">
+                <label for="level">Level:</label>
+                <input type="text" id="level" name="level" value="{{ user.level if user and user.level }}">
+            </div>
+            <div class="form-group">
+                <label for="experience">Experience:</label>
+                <input type="text" id="experience" name="experience" value="{{ user.experience if user and user.experience }}">
+            </div>
+            <div class="form-group">
+                <label for="word_count">Word Count:</label>
+                <input type="text" id="word_count" name="word_count" value="{{ user.word_count if user and user.word_count }}">
+            </div>
              <!-- For 'add' mode, you might want a password field. For 'edit', password changes should be handled carefully. -->
             {% if not user %}
             <div class="form-group">

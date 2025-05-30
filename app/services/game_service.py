@@ -294,6 +294,13 @@ def process_player_game_action(
             except Exception as log_e: print(f"Error logging new word submission (validity: {validation_result.is_valid}): {log_e}")
 
         if validation_result.is_valid:
+            updated_player_after_word_count = crud_user.increment_user_words_count(db, user_id=acting_player_id)
+            if updated_player_after_word_count:
+                # Optionally, if you wanted to send this specific update to clients, you could.
+                # For now, the count will be reflected next time user profile is fetched (e.g., on LauncherActivity onResume).
+                # Or if you had level/xp/words_count in GameStatePlayer, you would update it here.
+                print("GameService", f"Player {acting_player_id} new words_count: {updated_player_after_word_count.words_count}")
+
             current_game_state.players[acting_player_id].words_played.append(action_payload.get("word")) # Original case
             current_game_state.words_played_this_round_all.append(word)
             events.append(GameEvent(event_type="validation_result", payload={"word": action_payload.get("word"), "is_valid": True, "creativity_score": validation_result.creativity_score}, target_player_id=acting_player_id))

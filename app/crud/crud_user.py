@@ -106,6 +106,7 @@ def create_user_admin(db: Session, user_data: Dict[str, Any]) -> User:
     user_data.setdefault('is_active', True)
     user_data.setdefault('level', 1) # Default if not provided by admin
     user_data.setdefault('experience', 0) # Default if not provided by admin
+    user_data.setdefault('words_count', int(user_data.get('words_count', 0)))
 
     # Convert empty strings for optional fields to None
     for key in ['email', 'profile_pic_url', 'username', 
@@ -113,17 +114,11 @@ def create_user_admin(db: Session, user_data: Dict[str, Any]) -> User:
         if key in user_data and user_data[key] == '':
             user_data[key] = None
 
-    # Convert level and experience to int if they come as strings from form
-    if 'level' in user_data and isinstance(user_data['level'], str):
-        try:
-            user_data['level'] = int(user_data['level'])
-        except ValueError:
-            user_data['level'] = 1 # Default if conversion fails
-    if 'experience' in user_data and isinstance(user_data['experience'], str):
-        try:
-            user_data['experience'] = int(user_data['experience'])
-        except ValueError:
-            user_data['experience'] = 0 # Default if conversion fails
+    # Ensure numeric fields are integers
+    for num_field in ['level', 'experience', 'words_count']:
+        if num_field in user_data and isinstance(user_data[num_field], str):
+            try: user_data[num_field] = int(user_data[num_field])
+            except ValueError: user_data[num_field] = 0 # Or default specific to field
 
     # Filter out keys not in User model to prevent errors, or ensure user_data only contains valid keys
     # For simplicity, assuming user_data keys match User model attributes
@@ -148,7 +143,7 @@ def update_user_admin(db: Session, user_id: int, user_update_data: Dict[str, Any
                                             'client_provided_id', 'play_games_player_id', 'google_id']:
                     setattr(db_user, key, None)
 
-                elif key in ['level', 'experience']:
+                elif key in ['level', 'experience', 'words_count']:
                     try:
                         setattr(db_user, key, int(value) if value is not None else (1 if key == 'level' else 0) )
                     except (ValueError, TypeError):
@@ -191,5 +186,16 @@ def add_experience_to_user(db: Session, user_id: int, exp_to_add: int) -> User |
         
         db.commit()
         db.refresh(user)
+        return user
+    return None
+
+def increment_user_words_count(db: Session, user_id: int, count: int = 1) -> User | None:
+    """Increments the words_count for a user."""
+    user = get_user(db, user_id=user_id)
+    if user:
+        user.words_count = (user.words_count or 0) + count # Handle if words_count was somehow None
+        db.commit()
+        db.refresh(user)
+        print(f"User {user_id} ({user.username}) words_count incremented to {user.words_count}")
         return user
     return None

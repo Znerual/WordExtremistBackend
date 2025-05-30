@@ -54,6 +54,9 @@
                 <th>Active</th>
                 <th>Created At</th>
                 <th>Last Login</th>
+                <th>Level</th>
+                <th>Experience</th>
+                <th>Word Count</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -69,6 +72,9 @@
                 <td>{{ user.is_active }}</td>
                 <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '' }}</td>
                 <td>{{ user.last_login_at.strftime('%Y-%m-%d %H:%M') if user.last_login_at else '' }}</td>
+                <td>{{ user.level }}</td>
+                <td>{{ user.experience }}</td>
+                <td>{{ user.word_count }}</td>
                 <td class="action-links">
                     <a href="/admin/user/{{ user.id }}/edit">Edit</a>
                     <form id="delete-form-{{ user.id }}" method="post" action="/admin/user/{{ user.id }}/delete" style="display:inline;">                         

@@ -35,6 +35,7 @@ class GameState(BaseModel):
     last_action_timestamp: float | None = None
     status: str = "starting"
     matchmaking_player_order: List[int] = []
+    winner_user_id: int | None = None # The player_id of the winner, if any
 
 
 class PlayerAction(BaseModel):

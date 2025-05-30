@@ -1,12 +1,14 @@
 # app/models/user.py
 from typing import Optional
-from pydantic import BaseModel, EmailStr, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from datetime import datetime
 
 class UserBase(BaseModel):
     email: EmailStr | None = None
     username: str | None = None # Display name
     profile_pic_url: HttpUrl | None = None
+    level: int = Field(default=1)
+    experience: int = Field(default=0)
 
 class UserCreateFromPGS(UserBase):
     play_games_player_id: str

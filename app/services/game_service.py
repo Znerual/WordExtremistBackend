@@ -7,9 +7,10 @@ from typing import Dict, Any, Tuple, List, Literal
 from app.models.game import GameState, SentencePromptPublic, GameStatePlayer # Pydantic models from your existing files
 from app.models.user import UserPublic # For player details from matchmaking
 from app.models.validation import WordValidationResult # Added import
-from app.crud import crud_game_content # To fetch new sentences
+from app.crud import crud_game_content, crud_user # To fetch new sentences
 from app.services.word_validator import validate_word_against_prompt
 from app.crud import crud_game_log
+from app.core.config import settings # For XP and other constants
 
 MAX_MISTAKES = 3
 GAME_MAX_ROUNDS = 3 # Example, can be configured
@@ -364,8 +365,18 @@ def _handle_round_or_game_end(
     p1_id = current_game_state.matchmaking_player_order[0]
     p2_id = current_game_state.matchmaking_player_order[1]
     round_winner_id = p1_id if round_loser_id == p2_id else p2_id
+    round_loser_id = p2_id if round_winner_id == p1_id else p1_id
 
     current_game_state.players[round_winner_id].score += 1
+
+    # Award experience or points
+    crud_user.add_experience_to_user(
+        db, user_id=round_winner_id, exp_to_add=settings.XP_PER_ROUND_WINNING_PLAYER
+    )
+    crud_user.add_experience_to_user(
+        db, user_id=round_loser_id, exp_to_add=settings.XP_PER_ROUND_LOSING_PLAYER
+    )
+
     # current_game_state.last_action_timestamp is usually set by the calling function before this
 
     p1_score = current_game_state.players[p1_id].score
@@ -387,9 +398,17 @@ def _handle_round_or_game_end(
 
     if game_is_over:
         final_winner_id = p1_id if p1_score > p2_score else (p2_id if p2_score > p1_score else None)
+        final_loser_id = p2_id if final_winner_id == p1_id else p1_id
         current_game_state.status = "finished"
-        current_game_state.game_winner_id = final_winner_id # Store winner in GameState if you add this field
+        current_game_state.winner_user_id = final_winner_id # Store winner in GameState if you add this field
         
+        crud_user.add_experience_to_user(
+        db, user_id=final_winner_id, exp_to_add=settings.XP_FOR_GAME_WIN
+        )
+        crud_user.add_experience_to_user(
+            db, user_id=final_loser_id, exp_to_add=settings.XP_FOR_GAME_LOSS
+        )
+
         if db_game_id_for_logging:
             try: crud_game_log.finalize_game_record(db, game_db_id=db_game_id_for_logging, winner_user_id=final_winner_id, status="finished")
             except Exception as log_e: print(f"Error finalizing game DB record {db_game_id_for_logging}: {log_e}")
@@ -434,9 +453,13 @@ def handle_player_disconnect(
         p1_id = current_game_state.matchmaking_player_order[0]
         p2_id = current_game_state.matchmaking_player_order[1]
         forfeit_winner_id = p1_id if disconnected_player_id == p2_id else p2_id
+
+        crud_user.add_experience_to_user(
+            db, user_id=forfeit_winner_id, exp_to_add=settings.XP_FOR_GAME_WIN_BY_FORFEIT
+        )
         
         current_game_state.status = "abandoned_by_player" # Mark local state
-        current_game_state.game_winner_id = forfeit_winner_id # If you have this field
+        current_game_state.winner_user_id = forfeit_winner_id # If you have this field
 
         if db_game_id_for_logging:
             try:

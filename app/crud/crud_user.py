@@ -3,6 +3,7 @@ from typing import Any, Dict
 from sqlalchemy.orm import Session
 from app.schemas.user import User
 from app.models.user import UserCreateFromGoogle, UserCreateFromPGS, GetOrCreateUserRequest  # Use this Pydantic model
+from app.core.config import settings
 
 def get_user(db: Session, user_id: int) -> User | None:
     return db.query(User).filter(User.id == user_id).first()
@@ -103,12 +104,26 @@ def create_user_admin(db: Session, user_data: Dict[str, Any]) -> User:
     """
     # Ensure essential fields like is_active have defaults if not provided
     user_data.setdefault('is_active', True)
+    user_data.setdefault('level', 1) # Default if not provided by admin
+    user_data.setdefault('experience', 0) # Default if not provided by admin
 
     # Convert empty strings for optional fields to None
     for key in ['email', 'profile_pic_url', 'username', 
                 'client_provided_id', 'play_games_player_id', 'google_id']: # Add all relevant optional string fields
         if key in user_data and user_data[key] == '':
             user_data[key] = None
+
+    # Convert level and experience to int if they come as strings from form
+    if 'level' in user_data and isinstance(user_data['level'], str):
+        try:
+            user_data['level'] = int(user_data['level'])
+        except ValueError:
+            user_data['level'] = 1 # Default if conversion fails
+    if 'experience' in user_data and isinstance(user_data['experience'], str):
+        try:
+            user_data['experience'] = int(user_data['experience'])
+        except ValueError:
+            user_data['experience'] = 0 # Default if conversion fails
 
     # Filter out keys not in User model to prevent errors, or ensure user_data only contains valid keys
     # For simplicity, assuming user_data keys match User model attributes
@@ -132,6 +147,13 @@ def update_user_admin(db: Session, user_id: int, user_update_data: Dict[str, Any
                 if value == '' and key in ['email', 'profile_pic_url', 'username', 
                                             'client_provided_id', 'play_games_player_id', 'google_id']:
                     setattr(db_user, key, None)
+
+                elif key in ['level', 'experience']:
+                    try:
+                        setattr(db_user, key, int(value) if value is not None else (1 if key == 'level' else 0) )
+                    except (ValueError, TypeError):
+                        # Keep existing value or set default if conversion fails
+                        setattr(db_user, key, getattr(db_user, key) or (1 if key == 'level' else 0))
                 else:
                     setattr(db_user, key, value)
         db.commit()
@@ -150,3 +172,24 @@ def delete_user_admin(db: Session, user_id: int) -> bool:
 
 def get_all_users_paginated(db: Session, skip: int = 0, limit: int = 100) -> list[User]:
     return db.query(User).order_by(User.id.desc()).offset(skip).limit(limit).all()
+
+def add_experience_to_user(db: Session, user_id: int, exp_to_add: int) -> User | None:
+    """Adds experience to a user and handles leveling up. Returns the updated User object."""
+    user = get_user(db, user_id=user_id)
+    if user:
+        user.experience += exp_to_add
+        print(f"User {user_id} ({user.username}) gained {exp_to_add} XP. Total XP: {user.experience}, Level: {user.level}")
+
+        # Leveling up logic
+        # Example: XP needed for next level = current_level * XP_PER_LEVEL_BASE
+        xp_needed_for_next_level = user.level * settings.XP_PER_LEVEL_BASE * settings.XP_PER_LEVEL_MULTIPLIER ** (user.level - 1)  # Assuming XP_PER_LEVEL_BASE is defined in settings
+        
+        while user.experience >= xp_needed_for_next_level:
+            user.level += 1
+            print(f"User {user_id} ({user.username}) leveled up to Level {user.level}! XP remaining: {user.experience}")
+           
+        
+        db.commit()
+        db.refresh(user)
+        return user
+    return None

@@ -18,5 +18,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_login_at = Column(DateTime(timezone=True), onupdate=func.now(), default=func.now())
     hashed_password = Column(String, nullable=True) # Store the hash of the client-generated password
+    level = Column(Integer, default=1, nullable=False)
+    experience = Column(Integer, default=0, nullable=False)
     # Store Google OAuth refresh token securely if you need long-term offline access to PGS APIs
     # google_refresh_token = Column(String, nullable=True)

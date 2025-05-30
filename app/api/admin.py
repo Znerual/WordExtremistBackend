@@ -73,7 +73,9 @@ async def handle_add_user_admin(
     play_games_player_id: Optional[str] = Form(None),
     google_id: Optional[str] = Form(None),
     profile_pic_url: Optional[str] = Form(None),
-    is_active: bool = Form(True) # Default to True
+    is_active: bool = Form(True), # Default to True
+    level: Optional[int] = Form(1),
+    experience: Optional[int] = Form(0)
     # password: Optional[str] = Form(None) # If you were to implement password auth
 ):
     # Basic validation: at least one identifier should be present for a new user usually
@@ -96,7 +98,9 @@ async def handle_add_user_admin(
             "play_games_player_id": play_games_player_id,
             "google_id": google_id,
             "profile_pic_url": profile_pic_url,
-            "is_active": is_active
+            "is_active": is_active,
+            "level": level,
+            "experience": experience
         }
         # Remove None values so SQLAlchemy defaults can apply if defined in model
         user_data_cleaned = {k: v for k, v in user_data.items() if v is not None}
@@ -133,7 +137,9 @@ async def handle_edit_user_admin(
     play_games_player_id: Optional[str] = Form(None),
     google_id: Optional[str] = Form(None),
     profile_pic_url: Optional[str] = Form(None),
-    is_active_form: Optional[str] = Form(None) # Checkboxes send value "true" or "on" if checked, or not at all
+    is_active_form: Optional[str] = Form(None), # Checkboxes send value "true" or "on" if checked, or not at all
+    level: Optional[int] = Form(None), # Allow None to keep existing if not submitted
+    experience: Optional[int] = Form(None) # Allow None to keep existing if not 
 ):
     db_user = crud_user.get_user(db, user_id=user_id)
     if not db_user:
@@ -151,6 +157,12 @@ async def handle_edit_user_admin(
         "profile_pic_url": profile_pic_url,
         "is_active": is_active
     }
+
+    if level is not None:
+        update_data["level"] = level
+    if experience is not None:
+        update_data["experience"] = experience
+        
     # Filter out fields that were not submitted or are empty strings to avoid overwriting with None unintentionally
     # unless you specifically want to allow setting fields to NULL via empty form submissions.
     # For this example, we'll update with provided values, allowing empty strings to clear fields if model allows nullable.

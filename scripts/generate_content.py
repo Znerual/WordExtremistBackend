@@ -29,6 +29,7 @@ SENTENCE_PROMPT_ENDPOINT = f"{API_BASE_URL}/api/v1/sentence-prompts/"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 DEFAULT_BATCH_SIZE = 3 # Number of items to request from Gemini per call
+DEFAULT_LANGUAGE = "en"
 
 # --- Gemini Model Setup ---
 def configure_gemini():
@@ -46,13 +47,13 @@ def configure_gemini():
         sys.exit(1)
 
 # --- API Interaction ---
-def add_sentence_prompt_api(sentence, target_word, prompt, difficulty):
+def add_sentence_prompt_api(sentence, target_word, prompt, difficulty, language_code):
     payload = {
         "sentence_text": sentence,
         "target_word": target_word,
         "prompt_text": prompt,
         "difficulty": difficulty,
-        "language": "en" # Assuming English, adjust if needed
+        "language": language_code
     }
     for attempt in range(MAX_RETRIES):
         try:
@@ -79,36 +80,71 @@ def add_sentence_prompt_api(sentence, target_word, prompt, difficulty):
             return None
     return None # Should be unreachable if loop completes
 
+def add_sentence_prompt_db(sentence, target_word, prompt, difficulty, language_code):
+    db = None
+    try:
+        db = SessionLocal()
+        created_prompt = crud_game_content.create_sentence_prompt(
+            db=db,
+            sentence_text=sentence,
+            target_word=target_word,
+            prompt_text=prompt,
+            difficulty=difficulty,
+            language=language_code # Pass the language code
+        )
+        print(f"Successfully added to DB (Lang: {language_code}): {sentence[:30]}...")
+        return created_prompt
+    except Exception as e: # Catch potential IntegrityError for duplicates if DB has constraints
+        # Note: crud_game_content.get_sentence_prompt_by_content handles pre-check
+        print(f"Error adding prompt directly to DB (Lang: {language_code}): {e}")
+        if db:
+            db.rollback()
+        return None
+    finally:
+        if db:
+            db.close()
 
-single_game_content_schema = genai_types.Schema(
-    type=genai_types.Type.OBJECT,
-    properties={
-        'sentence': genai_types.Schema(type=genai_types.Type.STRING, description="An interesting sentence for the game."),
-        'target_word': genai_types.Schema(type=genai_types.Type.STRING, description="A single word from the 'sentence' that will be the focus."),
-        'prompt': genai_types.Schema(type=genai_types.Type.STRING, description="A short, engaging instruction for the player related to the target word. Example: 'Make it more intense!'"),
-        'difficulty': genai_types.Schema(type=genai_types.Type.INTEGER, description="Estimated difficulty of finding a good word for this combination, from 1 (very easy) to 5 (very hard).")
+game_content_list_schema = {
+    "type" : "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "sentence": {"type": "string", "description": "An interesting sentence for the game."},
+            "target_word": {"type": "string", "description": "A single word from the 'sentence' that will be the focus."},
+            "prompt": {"type": "string", "description": "A short, engaging instruction for the player related to the target word. Example: 'Make it more intense!'"},
+            "difficulty": {"type": "integer", "description": "Estimated difficulty of finding a good word for this combination, from 1 (very easy) to 5 (very hard)."}
+        },
+        "required": ["sentence", "target_word", "prompt", "difficulty"]
     },
-    required=['sentence', 'target_word', 'prompt', 'difficulty']
-)
-game_content_list_schema = genai_types.Schema(
-    type=genai_types.Type.ARRAY,
-    items=single_game_content_schema,
-    description="A list of game content objects, each containing a sentence, target word, prompt, and difficulty."
-)
+
+}
 
 # --- Content Generation (Placeholder) ---
-def generate_multiple_content_items_with_gemini(model, num_items_to_generate: int):
+def generate_multiple_content_items_with_gemini(model, num_items_to_generate: int, target_language_code: str):
     print(f"Generating {num_items_to_generate} content item(s) with Gemini using response schema...")
+
+    language_name_map = {
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        # Add more as needed
+    }
+    target_language_name = language_name_map.get(target_language_code.lower(), target_language_code) # Fallback to code if name not mapped
+
     try:
         prompt_text = f"""
         Generate {num_items_to_generate} unique and creative sentence-prompt combinations for a word game.
+        All generated content (sentences, target words, prompts) MUST be in the **{target_language_name}** language.
         Each combination should be distinct from the others in this batch.
         The game involves players finding words that fit a task, related to a target word in a sentence.
+        The task should not be too specific and not too long, allowing for creative interpretations.
+        One example in english would be: Make it more extreme!
 
         For each combination, provide:
-        - "sentence": An interesting sentence.
-        - "target_word": A single word from that sentence.
-        - "prompt": A short, engaging instruction for the player.
+        - "sentence": An interesting sentence in {target_language_name}.
+        - "target_word": A single word from that sentence, also in {target_language_name}.
+        - "prompt": A short, engaging instruction for the player, in {target_language_name}.
         - "difficulty": An integer from 1 (easy) to 5 (hard).
 
         Ensure the target_word is actually present in its corresponding sentence.
@@ -116,6 +152,7 @@ def generate_multiple_content_items_with_gemini(model, num_items_to_generate: in
         """
         
         generation_config = genai_types.GenerationConfig(
+            response_mime_type="application/json",
             response_schema=game_content_list_schema # Use the schema for a list of items
             # temperature=0.9 # Optional: adjust for creativity
         )
@@ -176,12 +213,12 @@ def generate_multiple_content_items_with_gemini(model, num_items_to_generate: in
 # This would require direct DB access or a dedicated GET endpoint.
 # For now, we'll rely on the API potentially rejecting duplicates (e.g. via a 400/409 error)
 # or the user can implement direct DB check here if preferred.
-def check_for_duplicate_db(sentence, target, prompt_text):
+def check_for_duplicate_db(sentence, target, prompt_text, language_code):
     db = None  # Initialize db to None
     try:
         db = SessionLocal()
         existing = crud_game_content.get_sentence_prompt_by_content(
-            db, sentence_text=sentence, target_word=target, prompt_text=prompt_text
+            db, sentence_text=sentence, target_word=target, prompt_text=prompt_text, language=language_code # Assuming English for simplicity, adjust as needed
         )
         return existing is not None
     except Exception as e:
@@ -202,9 +239,14 @@ def main():
         "-b", "--batch_size", type=int, default=DEFAULT_BATCH_SIZE,
         help=f"Number of examples to request from Gemini in a single API call (default: {DEFAULT_BATCH_SIZE})."
     )
+    parser.add_argument(
+        "-lang", "--language", type=str, default=DEFAULT_LANGUAGE,
+        help=f"Target language code for content generation (e.g., en, es, fr). Default: {DEFAULT_LANGUAGE}."
+    )
     args = parser.parse_args()
 
-    print(f"Starting content generation script. Goal: {args.num_examples} unique examples.")
+    target_lang_code = args.language.lower()
+    print(f"Starting content generation script. Goal: {args.num_examples} unique examples for language: {target_lang_code}.")
     print(f"Requesting items in batches of: {args.batch_size}")
     
     gemini_model = configure_gemini()
@@ -225,7 +267,7 @@ def main():
         if num_to_request_this_batch <= 0: # Should not happen if loop condition is correct
             break
 
-        content_item_list = generate_multiple_content_items_with_gemini(gemini_model, num_to_request_this_batch)
+        content_item_list = generate_multiple_content_items_with_gemini(gemini_model, num_to_request_this_batch, target_lang_code)
         
         if not content_item_list:
             print("Failed to generate a list of content from Gemini or list was empty/invalid. Retrying after delay...")
@@ -255,11 +297,11 @@ def main():
                 print(f"Problematic Gemini data: {item_data}")
                 continue
 
-            if check_for_duplicate_db(sentence, target_word, prompt_text):
+            if check_for_duplicate_db(sentence, target_word, prompt_text, target_lang_code):
                 print(f"Duplicate found in DB for: {sentence[:30]}... Skipping.")
                 continue
             
-            api_response = add_sentence_prompt_api(sentence, target_word, prompt_text, difficulty)
+            api_response = add_sentence_prompt_db(sentence, target_word, prompt_text, difficulty, target_lang_code)
 
             if api_response:
                 generated_count += 1

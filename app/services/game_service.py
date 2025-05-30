@@ -351,7 +351,8 @@ def process_player_game_action(
         emoji = action_payload.get("emoji")
         if emoji:
             emoji_payload = {"emoji": emoji, "sender_id": str(acting_player_id)}
-            events.append(GameEvent(event_type="emoji_broadcast", payload=emoji_payload, broadcast=True, exclude_player_id=acting_player_id)) # Keep exclude for sender
+            next_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
+            events.append(GameEvent(event_type="emoji_broadcast", payload=emoji_payload, broadcast=False, target_player_id=next_player_id)) # Keep exclude for sender
         return current_game_state, events
 
     else:

@@ -21,8 +21,10 @@ class Settings(BaseSettings):
 
     XP_FOR_ROUND_WIN: int = 25
     XP_FOR_ROUND_LOSS: int = 5
+    XP_FOR_ROUND_DRAW: int = 10
     XP_FOR_GAME_WIN: int = 100
     XP_FOR_GAME_LOSS: int = 5
+    XP_FOR_GAME_DRAW: int = 10
     XP_FOR_GAME_WIN_BY_FORFEIT: int = 10
     # Please set your Gemini API Key in the .env file
     GEMINI_API_KEY: str = "YOUR_GEMINI_API_KEY_HERE" # Added this line

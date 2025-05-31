@@ -16,8 +16,9 @@ router = APIRouter()
 class MatchmakingStatusResponse(BaseModel):
     status: str
     game_id: str | None = None
-    game_language: str | None = None
+    language: str | None = None
     opponent_name: str | None = None
+    opponent_level: int | None = None
     player1_id: int | None = None
     player2_id: int | None = None
     your_player_id_in_game: int | None = None
@@ -64,7 +65,7 @@ async def find_match(
     if not is_waiting and user_id not in player_match_status:
         print(f"Adding player '{current_user.username}' (DB ID: {user_id}) to matchmaking pool for lang '{requested_language or matchmaking_service.DEFAULT_GAME_LANGUAGE}.")
         matchmaking_service.add_player_to_matchmaking_pool(current_user, requested_language=requested_language)
-        player_match_status[user_id] = MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id)
+        player_match_status[user_id] = MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id, language=(requested_language or matchmaking_service.DEFAULT_GAME_LANGUAGE))
 
     match_result = matchmaking_service.try_match_players()
     if match_result:
@@ -72,17 +73,17 @@ async def find_match(
         print(f"Match found via /find: {game_id} (Lang: {game_lang}) for {p1.username} vs {p2.username}")
         
         player_match_status[p1.id] = MatchmakingStatusResponse(
-            status="matched", game_id=game_id, game_language=game_lang, opponent_name=p2.username,
-            player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p1.id
+            status="matched", game_id=game_id, language=game_lang, opponent_name=p2.username,
+            player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p1.id, opponent_level=p2.level
         )
         player_match_status[p2.id] = MatchmakingStatusResponse(
-            status="matched", game_id=game_id, game_language=game_lang, opponent_name=p1.username,
-            player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p2.id
+            status="matched", game_id=game_id, language=game_lang, opponent_name=p1.username,
+            player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p2.id, opponent_level=p1.level
         )
 
     # If user is still waiting (either wasn't matched, or the match involved other players)
     if matchmaking_service.is_player_waiting(user_id):
-         waiting_response = MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id, game_language=(requested_language or matchmaking_service.DEFAULT_GAME_LANGUAGE))
+         waiting_response = MatchmakingStatusResponse(status="waiting", your_player_id_in_game=user_id, language=(requested_language or matchmaking_service.DEFAULT_GAME_LANGUAGE))
          player_match_status[user_id] = waiting_response # Cache waiting status
          return waiting_response
     

@@ -11,6 +11,7 @@ from app.crud import crud_game_content, crud_user # To fetch new sentences
 from app.services.word_validator import validate_word_against_prompt
 from app.crud import crud_game_log
 from app.core.config import settings # For XP and other constants
+from app.models.enums import RoundEndReason # For round end reasons
 
 MAX_MISTAKES = 3
 GAME_MAX_ROUNDS = 3 # Example, can be configured
@@ -100,7 +101,7 @@ def initialize_new_game_state(
     initial_game_state_from_matchmaking.max_rounds = GAME_MAX_ROUNDS # Set max rounds
     initial_game_state_from_matchmaking.last_action_timestamp = time.time() # Set initial timestamp
     initial_game_state_from_matchmaking.words_played_this_round_all = [] # Reset for new game
-
+    initial_game_state_from_matchmaking.consecutive_timeouts = 0 # Reset timeout counter
 
     game_start_payload = {
         "game_id": game_id,
@@ -153,7 +154,11 @@ def prepare_reconnect_state_payload(game_id: str, current_game_state: GameState,
 def _determine_next_player(current_player_id: int, p1_id: int, p2_id: int) -> int:
     return p2_id if current_player_id == p1_id else p1_id
 
-def _prepare_next_round(current_game_state: GameState, db: Session, round_winner_of_previous_round: int) -> Tuple[GameState, List[GameEvent]]:
+def _prepare_next_round(
+        current_game_state: GameState, 
+        db: Session, 
+        round_winner_of_previous_round: int, 
+        previous_round_end_reason: RoundEndReason) -> Tuple[GameState, List[GameEvent]]:
     """
     Modifies current_game_state for the next round.
     Returns the modified state and events (e.g., new_round_started).
@@ -188,6 +193,7 @@ def _prepare_next_round(current_game_state: GameState, db: Session, round_winner
 
     new_round_payload = {
         "round_winner_id": str(round_winner_of_previous_round),
+        "previous_round_end_reason": previous_round_end_reason.value,
         "new_round_number": current_game_state.current_round,
         "player1_server_id": str(p1_id),
         "player2_server_id": str(p2_id),
@@ -267,7 +273,7 @@ def process_player_game_action(
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": "Word already played. Mistake!"}, target_player_id=acting_player_id))
             
             if mistakes >= MAX_MISTAKES:
-                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, "repeated_word_max_mistakes", db)
+                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.REPEATED_WORD_MAX_MISTAKES, db)
                 events.extend(round_game_over_events)
             # No 'else' needed to update matchmaking_service here; it's done after all processing for this action.
             return current_game_state, events
@@ -321,30 +327,53 @@ def process_player_game_action(
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": validation_result.error_message or "Not valid. Mistake!", "creativity_score": validation_result.creativity_score}, target_player_id=acting_player_id))
             events.append(GameEvent(event_type="opponent_mistake", payload={"player_id": str(acting_player_id), "mistakes": mistakes}, target_player_id=other_player_id))
             if mistakes >= MAX_MISTAKES:
-                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, "invalid_word_max_mistakes", db)
+                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.INVALID_WORD_MAX_MISTAKES, db)
                 events.extend(round_game_over_events)
         return current_game_state, events
 
 
     elif action_type == "timeout":
-        if is_acting_players_turn:
-            current_game_state.players[acting_player_id].mistakes_in_current_round += 1
-            mistakes = current_game_state.players[acting_player_id].mistakes_in_current_round
-            current_game_state.last_action_timestamp = time.time()
-            if mistakes >= MAX_MISTAKES:
-                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, "timeout_max_mistakes", db) # Changed reason
-                events.extend(round_game_over_events)
+        if not is_acting_players_turn:
+            print(f"Player {acting_player_id} sent timeout but not their turn. Game {current_game_state.game_id}. Ignoring.")
+            return current_game_state, events
+        
+        current_game_state.consecutive_timeouts += 1
+        current_game_state.players[acting_player_id].mistakes_in_current_round += 1
+        mistakes = current_game_state.players[acting_player_id].mistakes_in_current_round
+        current_game_state.last_action_timestamp = time.time()
+
+        if current_game_state.consecutive_timeouts == 2:
+            print(f"G:{current_game_state.game_id} - Double timeout! Player {acting_player_id} was the second to timeout.")
+            p1_words = len(current_game_state.players[p1_id].words_played)
+            p2_words = len(current_game_state.players[p2_id].words_played)
+            determined_round_loser_id: int
+            if p1_words > p2_words:
+                determined_round_loser_id = p2_id
+                print(f"P1 ({p1_id}) wins double_timeout round with {p1_words} words vs P2 ({p2_id}) {p2_words} words.")
+            elif p2_words > p1_words:
+                determined_round_loser_id = p1_id
+                print(f"P2 ({p2_id}) wins double_timeout round with {p2_words} words vs P1 ({p1_id}) {p1_words} words.")
             else:
-                next_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
-                current_game_state.current_player_id = next_player_id
-                timeout_turn_change_payload = {
-                    "opponent_player_id": str(acting_player_id), "current_player_id": str(next_player_id),
-                    "game_id": current_game_state.game_id, "game_active": True,
-                    "last_action_timestamp": current_game_state.last_action_timestamp
-                }
-                events.append(GameEvent(event_type="opponent_timeout", payload=timeout_turn_change_payload, target_player_id=next_player_id))
+                determined_round_loser_id = acting_player_id
+                print(f"Words tied ({p1_words}) in double_timeout. Player {acting_player_id} (timed out second) loses.")
+
+            current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, determined_round_loser_id, RoundEndReason.DOUBLE_TIMEOUT, db) # <--- USE ENUM
+            events.extend(round_game_over_events)
+            return current_game_state, events
+        
+        if mistakes >= MAX_MISTAKES:
+            current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.TIMEOUT_MAX_MISTAKES, db) # Changed reason
+            events.extend(round_game_over_events)
         else:
-            print(f"Player {acting_player_id} sent timeout but not their turn. Game {current_game_state.game_id}.")
+            next_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
+            current_game_state.current_player_id = next_player_id
+            timeout_turn_change_payload = {
+                "opponent_player_id": str(acting_player_id), "current_player_id": str(next_player_id),
+                "game_id": current_game_state.game_id, "game_active": True,
+                "last_action_timestamp": current_game_state.last_action_timestamp
+            }
+            events.append(GameEvent(event_type="opponent_timeout", payload=timeout_turn_change_payload, target_player_id=next_player_id))
+       
         return current_game_state, events
 
     elif action_type == "send_emoji":
@@ -362,7 +391,7 @@ def process_player_game_action(
 def _handle_round_or_game_end(
     current_game_state: GameState, 
     round_loser_id: int, 
-    reason: str, 
+    reason: RoundEndReason, 
     db: Session
 ) -> Tuple[GameState, List[GameEvent]]:
     """
@@ -370,6 +399,7 @@ def _handle_round_or_game_end(
     Returns updated state and list of events.
     """
     events = []
+    current_game_state.consecutive_timeouts = 0
     p1_id = current_game_state.matchmaking_player_order[0]
     p2_id = current_game_state.matchmaking_player_order[1]
     round_winner_id = p1_id if round_loser_id == p2_id else p2_id
@@ -406,31 +436,38 @@ def _handle_round_or_game_end(
 
     if game_is_over:
         final_winner_id = p1_id if p1_score > p2_score else (p2_id if p2_score > p1_score else None)
-        final_loser_id = p2_id if final_winner_id == p1_id else p1_id
+        final_loser_id = None
+        if final_winner_id:
+            final_loser_id = p2_id if final_winner_id == p1_id else p1_id
+            crud_user.add_experience_to_user(db, user_id=final_winner_id, exp_to_add=settings.XP_FOR_GAME_WIN)
+            if final_loser_id:
+                 crud_user.add_experience_to_user(db, user_id=final_loser_id, exp_to_add=settings.XP_FOR_GAME_LOSS)
+        else:
+            crud_user.add_experience_to_user(db, user_id=p1_id, exp_to_add=settings.XP_FOR_GAME_LOSS)
+            crud_user.add_experience_to_user(db, user_id=p2_id, exp_to_add=settings.XP_FOR_GAME_LOSS)
+
         current_game_state.status = "finished"
-        current_game_state.winner_user_id = final_winner_id # Store winner in GameState if you add this field
-        
-        crud_user.add_experience_to_user(
-        db, user_id=final_winner_id, exp_to_add=settings.XP_FOR_GAME_WIN
-        )
-        crud_user.add_experience_to_user(
-            db, user_id=final_loser_id, exp_to_add=settings.XP_FOR_GAME_LOSS
-        )
+        current_game_state.winner_user_id = final_winner_id
 
         if db_game_id_for_logging:
             try: crud_game_log.finalize_game_record(db, game_db_id=db_game_id_for_logging, winner_user_id=final_winner_id, status="finished")
             except Exception as log_e: print(f"Error finalizing game DB record {db_game_id_for_logging}: {log_e}")
 
+        game_over_reason = reason
+        if reason not in [RoundEndReason.DOUBLE_TIMEOUT, RoundEndReason.OPPONENT_DISCONNECTED] and game_is_over:
+            game_over_reason = RoundEndReason.MAX_ROUNDS_REACHED_OR_SCORE_LIMIT
+
+
         game_over_payload = {
             "game_winner_id": str(final_winner_id) if final_winner_id else None,
             "player1_server_id": str(p1_id), "player2_server_id": str(p2_id),
             "player1_final_score": p1_score, "player2_final_score": p2_score,
-            "reason": reason
+            "reason": game_over_reason.value
         }
         events.append(GameEvent(event_type="game_over", payload=game_over_payload, broadcast=True))
         print(f"Game {current_game_state.game_id} Over. Final Winner: {final_winner_id}. Score: {p1_score}-{p2_score}")
     else:
-        current_game_state, next_round_events = _prepare_next_round(current_game_state, db, round_winner_id)
+        current_game_state, next_round_events = _prepare_next_round(current_game_state, db, round_winner_id, reason)
         events.extend(next_round_events)
         
     return current_game_state, events
@@ -506,7 +543,7 @@ def handle_player_disconnect(
             "player2_server_id": str(current_game_state.matchmaking_player_order[1]),
             "player1_final_score": p1_final_score, # Use current scores
             "player2_final_score": p2_final_score,
-            "reason": "opponent_disconnected"
+            "reason": RoundEndReason.OPPONENT_DISCONNECTED.value
         }
         # This event should go to the remaining player to inform them the game is fully over.
         if remaining_player_id and remaining_player_id != disconnected_player_id:

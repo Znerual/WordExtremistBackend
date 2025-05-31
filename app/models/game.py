@@ -33,6 +33,7 @@ class GameState(BaseModel):
     is_waiting_for_opponent: bool = False
     # Timers might be managed client-side but server can validate/enforce
     last_action_timestamp: float | None = None
+    consecutive_timeouts: int = 0
     status: str = "starting"
     matchmaking_player_order: List[int] = []
     winner_user_id: int | None = None # The player_id of the winner, if any

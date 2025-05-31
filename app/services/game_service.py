@@ -354,8 +354,8 @@ def process_player_game_action(
                 determined_round_loser_id = p1_id
                 print(f"P2 ({p2_id}) wins double_timeout round with {p2_words} words vs P1 ({p1_id}) {p1_words} words.")
             else:
-                determined_round_loser_id = acting_player_id
-                print(f"Words tied ({p1_words}) in double_timeout. Player {acting_player_id} (timed out second) loses.")
+                determined_round_loser_id = None
+                print(f"Words tied ({p1_words}) in double_timeout. Draw.")
 
             current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, determined_round_loser_id, RoundEndReason.DOUBLE_TIMEOUT, db) # <--- USE ENUM
             events.extend(round_game_over_events)
@@ -390,7 +390,7 @@ def process_player_game_action(
 
 def _handle_round_or_game_end(
     current_game_state: GameState, 
-    round_loser_id: int, 
+    round_loser_id: int|None, 
     reason: RoundEndReason, 
     db: Session
 ) -> Tuple[GameState, List[GameEvent]]:
@@ -402,18 +402,25 @@ def _handle_round_or_game_end(
     current_game_state.consecutive_timeouts = 0
     p1_id = current_game_state.matchmaking_player_order[0]
     p2_id = current_game_state.matchmaking_player_order[1]
-    round_winner_id = p1_id if round_loser_id == p2_id else p2_id
-    round_loser_id = p2_id if round_winner_id == p1_id else p1_id
+    round_winner_id = p1_id if round_loser_id == p2_id else (p2_id if round_loser_id else None)
+    round_loser_id = p2_id if round_winner_id == p1_id else (p1_id if round_loser_id else None)
 
-    current_game_state.players[round_winner_id].score += 1
-
-    # Award experience or points
-    crud_user.add_experience_to_user(
-        db, user_id=round_winner_id, exp_to_add=settings.XP_FOR_ROUND_WIN
-    )
-    crud_user.add_experience_to_user(
-        db, user_id=round_loser_id, exp_to_add=settings.XP_FOR_ROUND_LOSS
-    )
+    if round_winner_id:
+        current_game_state.players[round_winner_id].score += 1
+        # Award experience or points
+        crud_user.add_experience_to_user(
+            db, user_id=round_winner_id, exp_to_add=settings.XP_FOR_ROUND_WIN
+        )
+        crud_user.add_experience_to_user(
+            db, user_id=round_loser_id, exp_to_add=settings.XP_FOR_ROUND_LOSS
+        )
+    else:
+        crud_user.add_experience_to_user(
+            db, user_id=p1_id, exp_to_add=settings.XP_FOR_ROUND_DRAW
+        )
+        crud_user.add_experience_to_user(
+            db, user_id=p2_id, exp_to_add=settings.XP_FOR_ROUND_DRAW
+        )
 
     # current_game_state.last_action_timestamp is usually set by the calling function before this
 
@@ -443,8 +450,8 @@ def _handle_round_or_game_end(
             if final_loser_id:
                  crud_user.add_experience_to_user(db, user_id=final_loser_id, exp_to_add=settings.XP_FOR_GAME_LOSS)
         else:
-            crud_user.add_experience_to_user(db, user_id=p1_id, exp_to_add=settings.XP_FOR_GAME_LOSS)
-            crud_user.add_experience_to_user(db, user_id=p2_id, exp_to_add=settings.XP_FOR_GAME_LOSS)
+            crud_user.add_experience_to_user(db, user_id=p2_id, exp_to_add=settings.XP_FOR_GAME_DRAW)
+            crud_user.add_experience_to_user(db, user_id=p1_id, exp_to_add=settings.XP_FOR_GAME_DRAW)
 
         current_game_state.status = "finished"
         current_game_state.winner_user_id = final_winner_id

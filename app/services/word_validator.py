@@ -82,6 +82,7 @@ def validate_word_against_prompt(
 You are a word game judge. The game content is in the language with code '{language}'. Given a sentence, a target word within that sentence,
 a prompt for modifying the target word, and a submitted word from a player,
 determine if the submitted word is valid according to the prompt and how creative it is.
+Don't be too harsh, if the word is a reasonable response to the prompt, consider it valid.
 
             Your response will be structured as a JSON object according to a predefined schema.
 
@@ -96,12 +97,12 @@ determine if the submitted word is valid according to the prompt and how creativ
             - "reason": (string) A brief explanation for your decision, especially if invalid.
 
             Example of how to think about the content for a valid word:
-            If Sentence="The fire was warm.", Target Word="warm", Prompt="Make it more extreme!", Submitted Word="inferno":
-            Then is_valid=true, creativity_score=4 (or similar, based on your judgment), reason="The word 'inferno' strongly amplifies 'warm'..."
+            If Sentence="The fire was warm.", Target Word="warm", Prompt="Make it more extreme!", Submitted Word="hot":
+            Then is_valid=true, creativity_score=1 (or similar, based on your judgment), reason="The word 'hot' strongly amplifies 'warm'... and fits the sentence context."
 
             Example for an invalid word:
-            If Sentence="The cat is quick.", Target Word="quick", Prompt="Describe its color.", Submitted Word="fast":
-            Then is_valid=false, creativity_score=0, reason="The word 'fast' describes speed, not color."
+            If Sentence="The cat is quick.", Target Word="quick", Prompt="Use synonyms", Submitted Word="slow":
+            Then is_valid=false, creativity_score=0, reason="The word 'slow' is the opposite of fast and not a synonym."
 """
     
     gemini_is_valid = False

@@ -379,10 +379,10 @@ def _handle_round_or_game_end(
 
     # Award experience or points
     crud_user.add_experience_to_user(
-        db, user_id=round_winner_id, exp_to_add=settings.XP_PER_ROUND_WINNING_PLAYER
+        db, user_id=round_winner_id, exp_to_add=settings.XP_FOR_ROUND_WIN
     )
     crud_user.add_experience_to_user(
-        db, user_id=round_loser_id, exp_to_add=settings.XP_PER_ROUND_LOSING_PLAYER
+        db, user_id=round_loser_id, exp_to_add=settings.XP_FOR_ROUND_LOSS
     )
 
     # current_game_state.last_action_timestamp is usually set by the calling function before this

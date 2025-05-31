@@ -181,6 +181,7 @@ def add_experience_to_user(db: Session, user_id: int, exp_to_add: int) -> User |
         
         while user.experience >= xp_needed_for_next_level:
             user.level += 1
+            xp_needed_for_next_level = user.level * settings.XP_PER_LEVEL_BASE * settings.XP_PER_LEVEL_MULTIPLIER ** (user.level - 1)
             print(f"User {user_id} ({user.username}) leveled up to Level {user.level}! XP remaining: {user.experience}")
            
         

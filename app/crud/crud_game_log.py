@@ -1,8 +1,11 @@
+import logging
 from typing import Optional
 from sqlalchemy.orm import Session, joinedload
 from app.schemas.game_log import Game, GamePlayer, WordSubmission
 from app.schemas.user import User # To type hint
 import datetime
+
+logger = logging.getLogger("app.crud.game_log")  # Logger for this module
 
 def create_game_record(db: Session, matchmaking_game_id: str, player1_id: int, player2_id: int, language: str = "en") -> Game:
     """
@@ -59,7 +62,7 @@ def update_game_player_score(db: Session, game_db_id: int, user_id: int, new_sco
         db.commit()
         db.refresh(db_game_player)
     else:
-        print(f"Warning: GamePlayer record not found for game_db_id {game_db_id}, user_id {user_id} to update score.")
+        logging.error(f"Warning: GamePlayer record not found for game_db_id {game_db_id}, user_id {user_id} to update score.")
 
 def finalize_game_record(db: Session, game_db_id: int, winner_user_id: int | None, status: str = "finished"):
     db_game = db.query(Game).filter(Game.id == game_db_id).first()
@@ -71,7 +74,7 @@ def finalize_game_record(db: Session, game_db_id: int, winner_user_id: int | Non
         db.commit()
         db.refresh(db_game)
     else:
-        print(f"Warning: Game record not found for game_db_id {game_db_id} to finalize.")
+        logging.error(f"Warning: Game record not found for game_db_id {game_db_id} to finalize.")
 
 def get_game_by_id(db: Session, game_db_id: int) -> Game | None:
     return db.query(Game).filter(Game.id == game_db_id).first()
@@ -114,7 +117,7 @@ def update_game_player_score_admin(db: Session, game_db_id: int, user_id: int, n
         db.commit()
         db.refresh(db_game_player)
     else:
-        print(f"Admin: GamePlayer record not found for game_db_id {game_db_id}, user_id {user_id} to update score.")
+        logging.error(f"Admin: GamePlayer record not found for game_db_id {game_db_id}, user_id {user_id} to update score.")
 
 
 def update_word_submission_details(

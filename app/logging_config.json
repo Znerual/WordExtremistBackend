@@ -1,0 +1,89 @@
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "simple_console": {
+            "format": "%(levelname)-8s [%(name)s] %(message)s"
+        },
+    "json_file": {
+            "()": "app.core.logging_utils.MyJSONFormatter",
+            "fmt_keys": {
+                "level": "levelname",
+                "message": "message",
+                "timestamp": "timestamp",
+                "logger": "name",
+                "module": "module",
+                "function": "funcName",
+                "line": "lineno",
+                "thread_name": "threadName"
+            },
+            "datefmt": "%Y-%m-%dT%H:%M:%S%z"
+        }
+    },
+    "handlers": {
+        "console_info_and_above": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "simple_console",
+            "stream": "ext://sys.stderr"
+        },
+        "file_debug": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "DEBUG",
+            "formatter": "json_file",
+            "filename": "logs/app_debug.jsonl",
+            "maxBytes": 10485760,
+            "backupCount": 1,
+            "encoding": "utf8"
+        },
+        "file_info": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "json_file",
+            "filename": "logs/app_info.jsonl",
+            "maxBytes": 20971520,
+            "backupCount": 1,
+            "encoding": "utf8"
+        },
+        "file_error": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "ERROR",
+            "formatter": "json_file",
+            "filename": "logs/app_error.jsonl",
+            "maxBytes": 52428800,
+            "backupCount": 10,
+            "encoding": "utf8"
+        },
+        "queue_handler": {
+            "class": "logging.handlers.QueueHandler",
+            "handlers": [
+                "console_info_and_above",
+                "file_debug",
+                "file_info",
+                "file_error"
+            ],
+            "respect_handler_level": true
+        }
+    },
+    "loggers": {
+        "app": {
+            "handlers": [],
+            "level": "DEBUG",
+            "propagate": true
+        },
+        "uvicorn.access": {
+            "handlers": [],
+            "level": "INFO",
+            "propagate": true
+        },
+        "sqlalchemy.engine": {
+             "handlers": [],
+             "level": "INFO",
+             "propagate": true
+        }
+    },
+    "root": {
+        "handlers": ["queue_handler"],
+        "level": "DEBUG"
+    }
+}

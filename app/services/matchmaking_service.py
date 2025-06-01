@@ -1,9 +1,12 @@
 # app/services/matchmaking_service.py
+import logging
 from typing import Dict, List, Optional, Tuple, Set, Any
 from app.models.game import GameState, GameStatePlayer
 from app.models.user import UserPublic
 import uuid
 import time
+
+logger = logging.getLogger("app.services.matchmaking_service")  # Logger for this module
 
 # In-memory stores for simplicity. For production, use Redis or a DB.
 waiting_players_by_lang: Dict[str, List[UserPublic]] = {}
@@ -26,11 +29,11 @@ def add_player_to_matchmaking_pool(player: UserPublic, requested_language: str |
         waiting_players_by_lang[lang_key] = []
 
     if is_player_waiting(player.id):
-        print(f"Player '{player.username}' (ID: {player.id}) is already in a matchmaking pool. Not adding again.")
+        logger.error(f"Player '{player.username}' (ID: {player.id}) is already in a matchmaking pool. Not adding again.")
         return
     
     waiting_players_by_lang[lang_key].append(player)
-    print(f"Player '{player.username}' (ID: {player.id}) added to '{lang_key}' waiting pool. Pool size for '{lang_key}': {len(waiting_players_by_lang[lang_key])}")
+    logger.info(f"Player '{player.username}' (ID: {player.id}) added to '{lang_key}' waiting pool. Pool size for '{lang_key}': {len(waiting_players_by_lang[lang_key])}")
 
 
 def remove_player_from_matchmaking_pool(user_id: int):
@@ -42,11 +45,11 @@ def remove_player_from_matchmaking_pool(user_id: int):
         waiting_players_by_lang[lang_key] = [p for p in waiting_players_by_lang[lang_key] if p.id != user_id]
         if len(waiting_players_by_lang[lang_key]) < initial_len:
             removed = True
-            print(f"Player ID {user_id} removed from '{lang_key}' waiting pool.")
+            logger.info(f"Player ID {user_id} removed from '{lang_key}' waiting pool.")
         if not waiting_players_by_lang[lang_key]: # Cleanup empty list
             del waiting_players_by_lang[lang_key]
     if not removed:
-        print(f"Player ID {user_id} not found in any waiting pool for removal.")
+        logger.error(f"Player ID {user_id} not found in any waiting pool for removal.")
 
 
 # --- Modified to return UserPublic objects and only create basic game entry ---
@@ -81,7 +84,7 @@ def try_match_players() -> Tuple[str, UserPublic, UserPublic, str] | None:
                 last_action_timestamp=time.time(), # Custom field, not in GameState model, for cleanup
                 matchmaking_player_order=[player1.id, player2.id]
             )
-            print(f"Matched game {game_id} (lang: {lang_key}) for '{player1.username}' vs '{player2.username}'")
+            logger.info(f"Matched game {game_id} (lang: {lang_key}) for '{player1.username}' vs '{player2.username}'")
            
             if not lang_pool: # Cleanup empty list
                 del waiting_players_by_lang[lang_key]

@@ -1,10 +1,12 @@
 # app/api/game_data.py
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.api import deps
 from app.models.game import SentencePromptPublic
 from app.crud import crud_game_content
 
+logger = logging.getLogger("app.api.game_data")  # Logger for this module
 router = APIRouter()
 
 @router.get("/sentence-prompt/random", response_model=SentencePromptPublic)
@@ -30,6 +32,9 @@ async def create_sentence_prompt_via_api( # Renamed to avoid conflict if admin.p
     The input `sentence_prompt_data` should include `language`.
     """
     if sentence_prompt_data.target_word.lower() not in sentence_prompt_data.sentence_text.lower():
+        logger.error(
+            f"Target word '{sentence_prompt_data.target_word}' not found in sentence '{sentence_prompt_data.sentence_text}'."
+        )
         raise HTTPException(
             status_code=400,
             detail=f"Target word '{sentence_prompt_data.target_word}' not found in sentence '{sentence_prompt_data.sentence_text}'."
@@ -43,6 +48,9 @@ async def create_sentence_prompt_via_api( # Renamed to avoid conflict if admin.p
         language=sentence_prompt_data.language
     )
     if existing:
+        logger.warning(
+            f"Attempt to create duplicate sentence prompt for language '{sentence_prompt_data.language}': {sentence_prompt_data.sentence_text}"
+        )
         raise HTTPException(
             status_code=409, # Conflict
             detail="This sentence prompt already exists for the given language."

@@ -1,4 +1,5 @@
 # app/api/admin.py
+import logging
 from fastapi import APIRouter, Query, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -17,9 +18,7 @@ from app.crud import crud_game_content, crud_game_log, crud_user
 from app.schemas.user import User # Your existing CRUD functions
 from fastapi import HTTPException # Added HTTPException
 
-# Removed local SentencePromptCreate definition and BaseModel import
-# from pydantic import BaseModel # This should have been removed earlier if only for SentencePromptCreate
-# class SentencePromptCreate(BaseModel): ...
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -204,12 +203,13 @@ async def show_add_sentence_prompt_form(
     # Fetch some existing prompts to display
     # Modify crud_game_content or add a new function to get latest N prompts
     # For now, let's assume a function get_latest_sentence_prompts exists or adapt
+    logger.debug("Admin show_add_sentence_prompt_form called.")
     try:
         # Crude way to get last 5 for now, ideally add a proper CRUD function
         db_prompts = db.query(SentencePromptModel).order_by(SentencePromptModel.id.desc()).limit(5).all()
         prompts_public = [SentencePromptPublic.model_validate(p) for p in db_prompts] # Ensure this uses the correct model
     except Exception as e:
-        print(f"Error fetching existing prompts: {e}")
+        logger.exception(f"Error fetching existing prompts: {e}")
         prompts_public = []
         # If this happens on form load, it's not critical for the form itself
         # but indicates a DB issue if it persists.
@@ -232,6 +232,7 @@ async def handle_add_sentence_prompt(
     language: Optional[str] = Form("en") # Default to English, can be extended later
 ):
     """Handles the form submission for adding a new sentence prompt."""
+    logger.info(f"Admin attempting to add sentence prompt: Text='{sentence_text[:30]}...', Target='{target_word}'")
     try:
         # Basic validation (more can be added)
         if not sentence_text or not target_word or not prompt_text:
@@ -239,6 +240,7 @@ async def handle_add_sentence_prompt(
         if target_word.lower() not in sentence_text.lower():
             # Redirect back with an error message
             error_msg = f"Error: Target word '{target_word}' not found in sentence '{sentence_text}'."
+            logger.warning(f"Admin prompt add validation failed: {error_msg}")
             # Use query parameters for redirect message
             return RedirectResponse(
                 url=f"/admin/add-sentence-prompt?message={error_msg}&success=false",
@@ -256,6 +258,7 @@ async def handle_add_sentence_prompt(
         # Ensure crud_game_content.create_sentence_prompt handles difficulty
 
         success_msg = f"Successfully added prompt: ID {created_prompt.id} - '{created_prompt.sentence_text[:30]}...'"
+        logger.info(f"Successfully added prompt ID {created_prompt.id}")
         # Redirect back to the form page with a success message
         return RedirectResponse(
             url=f"/admin/add-sentence-prompt?message={success_msg}&success=true",
@@ -264,12 +267,13 @@ async def handle_add_sentence_prompt(
 
     except ValueError as ve: # Specific validation error
          error_msg_val = f"Validation Error: {ve}"
+         logger.error(f"Admin prompt add ValueError: {error_msg_val}", exc_info=True) # exc_info for more details
          return RedirectResponse(
             url=f"/admin/add-sentence-prompt?message={error_msg_val}&success=false",
             status_code=303
         )
     except Exception as e:
-        print(f"Error adding sentence prompt: {e}")
+        logger.exception(f"Error adding sentence prompt: {e}")
         # In a real app, log this error properly
         error_msg_exc = f"An unexpected error occurred: {str(e)}"
         return RedirectResponse(
@@ -418,9 +422,9 @@ async def handle_edit_game(
                         db=db, game_db_id=game_db_id, user_id=player_id_to_update, new_score=new_score
                     )
                 except ValueError:
-                    print(f"Skipping invalid score update for key {key}")
+                    logger.exception(f"Skipping invalid score update for key {key}")
                 except Exception as e_score:
-                    print(f"Error updating score for {key}: {e_score}")
+                    logger.exception(f"Error updating score for {key}: {e_score}")
 
 
         success_msg = f"Game {game_db_id} updated successfully."

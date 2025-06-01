@@ -1,4 +1,5 @@
 # app/core/security.py
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Tuple
 from jose import jwt, JWTError
@@ -16,7 +17,7 @@ from app.core.config import settings
 # google-auth's id_token.verify_oauth2_token handles caching internally if you provide a requests.Request() object.
 # For direct use with id_token.verify_token, you might manage a simpler cache or rely on library's internal.
 # However, id_token.verify_oauth2_token is generally preferred as it handles more.
-
+logger = logging.getLogger("app.core.security")  # Logger for this module
 GOOGLE_REQUEST_SESSION = google_requests.Request() # Re-use a session for requests
 
 def get_password_hash(password: str) -> str:
@@ -31,21 +32,10 @@ def get_password_hash(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies a plain password against a stored bcrypt hash."""
     plain_password_bytes = plain_password.encode('utf-8')
-    
-    # --- DEBUGGING ---
-    print(f"DEBUG: Hashed password string from DB: '{hashed_password}' (type: {type(hashed_password)})")
     hashed_password_bytes = hashed_password.encode('utf-8')
-    print(f"DEBUG: Hashed password bytes for checkpw: {hashed_password_bytes!r} (type: {type(hashed_password_bytes)})") 
-    # !r shows the byte representation
-    # --- END DEBUGGING ---
-
-    try:
-        return bcrypt.checkpw(plain_password_bytes, hashed_password_bytes)
-    except ValueError as e:
-        print(f"DEBUG: ValueError in bcrypt.checkpw: {e}")
-        print(f"DEBUG:   plain_password_bytes: {plain_password_bytes!r}")
-        print(f"DEBUG:   hashed_password_bytes: {hashed_password_bytes!r}")
-        raise # re-raise the exception
+   
+    return bcrypt.checkpw(plain_password_bytes, hashed_password_bytes)
+   
 
 async def verify_google_id_token(token: str) -> dict:
     """
@@ -75,6 +65,7 @@ async def verify_google_id_token(token: str) -> dict:
         # idinfo['exp'] (expiration time)
 
         if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            logger.error(f"Invalid issuer in Google ID token: {idinfo['iss']}")
             raise ValueError('Wrong issuer.')
 
         # You can add more checks here if needed (e.g., specific hd domain for G Suite)
@@ -83,10 +74,10 @@ async def verify_google_id_token(token: str) -> dict:
 
     except ValueError as e:
         # This error occurs if the token is invalid (e.g., wrong issuer, expired, bad signature, wrong audience)
-        print(f"Google ID Token ValueError: {e}")
+        logger.exception(f"Google ID Token ValueError: {e}")
         raise credentials_exception
     except Exception as e:
-        print(f"Unexpected error verifying Google ID Token: {e}")
+        logger.exception(f"Unexpected error verifying Google ID Token: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error during Google token verification"
@@ -118,6 +109,7 @@ async def exchange_google_auth_code(auth_code: str) -> Tuple[str | None, str | N
         credentials = flow.credentials # google.oauth2.credentials.Credentials
 
         if not credentials or not credentials.valid:
+            logger.error("Failed to fetch valid credentials from Google auth code.")
             raise HTTPException(status_code=400, detail="Invalid auth code or failed to fetch tokens.")
 
         # Securely get Play Games Player ID using the obtained credentials
@@ -184,11 +176,11 @@ async def exchange_google_auth_code(auth_code: str) -> Tuple[str | None, str | N
                      # For Play Games v2, this 'sub' obtained through server auth flow for PGS scope *is* the Player ID.
 
 
-        print(f"DEBUG: Exchanged auth code. PGS Player ID (sub): {pgs_player_id}, Email: {email}")
+        logger.debug(f"DEBUG: Exchanged auth code. PGS Player ID (sub): {pgs_player_id}, Email: {email}")
         return pgs_player_id, email, credentials.refresh_token, credentials.token
 
     except Exception as e:
-        print(f"Error exchanging Google auth code: {e}")
+        logger.exception(f"Error exchanging Google auth code: {e}")
         # Log the error details
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid Google auth code or server error: {str(e)}")
 
@@ -226,8 +218,8 @@ async def verify_backend_token(token: str) -> dict:
             
         return payload
     except JWTError as e: # Catches errors from jwt.decode (e.g., signature expired, invalid signature)
-        print(f"JWTError during backend token verification: {e}")
+        logger.exception(f"JWTError during backend token verification: {e}")
         raise credentials_exception
     except Exception as e: # Catch any other unexpected errors
-        print(f"Unexpected error verifying backend token: {e}")
+        logger.exception(f"Unexpected error verifying backend token: {e}")
         raise credentials_exception

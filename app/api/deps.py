@@ -1,4 +1,5 @@
 # app/api/deps.py
+import logging
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer # We still use this for the "Bearer" scheme
 from sqlalchemy.orm import Session
@@ -9,6 +10,8 @@ from app.core.security import verify_google_id_token # Use this
 from app.models.user import UserPublic
 from app.crud import crud_user, crud_user as user_crud # Alias for clarity
 from app.core.config import settings
+
+logger = logging.getLogger("app.api.deps")  # Logger for this module
 
 def get_db():
     db = SessionLocal()
@@ -30,6 +33,7 @@ async def get_current_user_from_google_token(
         google_user_id = google_payload.get("sub")
 
         if google_user_id is None:
+            logger.error("Google token validation failed: 'sub' field missing.")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid Google token: Subject (sub) missing.",
@@ -40,6 +44,7 @@ async def get_current_user_from_google_token(
             # User doesn't exist in our DB yet, but Google token is valid.
             # We will create them in the /auth/google/callback endpoint (or similar)
             # For protected routes, if user not found after token check, it's an issue.
+            logger.error(f"User with Google ID {google_user_id} not found in our system.")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, # Or 401
                 detail="User not registered in our system. Please complete sign-in.",
@@ -56,7 +61,7 @@ async def get_current_user_from_google_token(
     except HTTPException as e:
         raise e
     except Exception as e:
-        print(f"Error in get_current_user_from_google_token: {e}")
+        logger.exception(f"Error in get_current_user_from_google_token: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials during Google token user lookup",
@@ -82,30 +87,25 @@ async def get_current_user_from_backend_jwt( # Renamed for clarity
         try:
             user_db_id = int(user_id_str)
         except ValueError:
-            print(f"Invalid user ID format in token 'sub': {user_id_str}")
+            logger.exception(f"Invalid user ID format in token 'sub': {user_id_str}")
             raise credentials_exception
 
         user = crud_user.get_user(db, user_id=user_db_id)
         if user is None:
             # This implies a valid token was issued for a user that no longer exists,
             # or a token from another environment. This is an anomaly.
-            print(f"User with DB ID {user_db_id} from valid token not found in database.")
+            logger.error(f"User with DB ID {user_db_id} from valid token not found in database.")
             raise HTTPException(status_code=404, detail="User from token not found")
 
         if not user.is_active:
             raise HTTPException(status_code=400, detail="Inactive user")
         
-        # Optionally, verify client_provided_id if it's also in the token
-        # token_cpid = payload.get("cpid")
-        # if token_cpid and user.client_provided_id != token_cpid:
-        #     print("Client Provided ID in token does not match user's record.")
-        #     raise credentials_exception
 
         return UserPublic.model_validate(user)
     except HTTPException as e:
         raise e
     except Exception as e:
-        print(f"Unexpected error in get_current_user_from_backend_jwt: {e}")
+        logger.exception(f"Unexpected error in get_current_user_from_backend_jwt: {e}")
         raise credentials_exception
 
 

@@ -1,4 +1,5 @@
 # app/api/auth.py
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 # from app.core.security import create_backend_access_token # If issuing own tokens
 # from app.models.user import BackendToken # If issuing own tokens
 
+logger = logging.getLogger("app.api.auth")  # Logger for this module
 router = APIRouter()
 
 class GoogleIdTokenRequest(BaseModel): # Renamed for clarity
@@ -32,7 +34,7 @@ async def login_with_device_credentials(
 
     if not user:
         # --- User Registration Case ---
-        print(f"Device ID {request_data.client_provided_id} not found. Registering new user.")
+        logger.info(f"Device ID {request_data.client_provided_id} not found. Registering new user.")
         hashed_password = get_password_hash(request_data.client_generated_password)
         
         # We need a username. Client doesn't send it in this request.
@@ -108,14 +110,14 @@ async def login_with_play_games_server_auth_code(
                 # profile_pic_url= fetched_pic_url # Fetch if needed
             )
             user = crud_user.create_user_from_pgs_info(db, user_in=user_in_create)
-            print(f"New user created via PGS: {user.username} (PGS ID: {pgs_player_id})")
+            logger.info(f"New user created via PGS: {user.username} (PGS ID: {pgs_player_id})")
         else:
             user.last_login_at = datetime.now(timezone.utc)
             # if refresh_token and user.google_refresh_token != refresh_token:
             #     user.google_refresh_token = refresh_token # Securely store if needed
             db.commit()
             db.refresh(user)
-            print(f"User logged in via PGS: {user.username} (PGS ID: {pgs_player_id})")
+            logger.info(f"User logged in via PGS: {user.username} (PGS ID: {pgs_player_id})")
 
         # Create your backend's JWT
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -129,7 +131,7 @@ async def login_with_play_games_server_auth_code(
     except HTTPException as e: # Re-raise FastAPI HTTPExceptions
         raise e
     except Exception as e:
-        print(f"Error during PGS login: {e}")
+        logger.exception(f"Error during PGS login: {e}")
         # Log the full error for debugging
         import traceback
         traceback.print_exc()
@@ -153,8 +155,8 @@ async def link_device_with_google_account(
         email = google_payload.get("email")
         # Ensure email is present and email_verified is true if needed for your app's policy
         if not google_payload.get("email_verified", False) and email: # Optional check
-             print(f"Warning: Email {email} for Google ID {google_id} is not verified.")
-             # Decide if you want to proceed or require verified emails.
+            logger.warning(f"Warning: Email {email} for Google ID {google_id} is not verified.")
+            # Decide if you want to proceed or require verified emails.
 
         username = google_payload.get("name")
         picture_url = google_payload.get("picture")
@@ -175,7 +177,7 @@ async def link_device_with_google_account(
                 profile_pic_url=picture_url
             )
             user = crud_user.create_user_from_google_info(db, user_in=user_create_data)
-            print(f"New user linked via Google Sign-In: {user.username} (Google ID: {google_id})")
+            logger.info(f"New user linked via Google Sign-In: {user.username} (Google ID: {google_id})")
         else:
             # Existing user, update last login or other details if necessary
             user.last_login_at = datetime.now(timezone.utc) # Update last login
@@ -184,14 +186,14 @@ async def link_device_with_google_account(
             # user.profile_pic_url = picture_url
             db.commit()
             db.refresh(user)
-            print(f"User logged in via Google: {user.username} (Google ID: {google_id})")
+            logger.debug(f"User logged in via Google: {user.username} (Google ID: {google_id})")
 
         return UserPublic.model_validate(user)
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        print(f"Error during Google device link: {e}")
+        logger.exception(f"Error during Google device link: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred during Google sign-in processing."

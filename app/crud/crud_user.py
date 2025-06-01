@@ -26,7 +26,7 @@ def create_user_for_device_login(db: Session, client_id: str, hashed_password_va
     db.commit()
     db.refresh(db_user)
 
-    logging.info(f"Created new user with client_provided_id: {client_id}, username: {username}")
+    logger.info(f"Created new user with client_provided_id: {client_id}, username: {username}")
 
     return db_user
 
@@ -49,7 +49,7 @@ def create_user_with_client_provided_id(db: Session, user_in: GetOrCreateUserReq
     db.commit()
     db.refresh(db_user)
 
-    logging.info(f"Created new user with client_provided_id: {user_in.client_provided_id}, username: {default_username}")
+    logger.info(f"Created new user with client_provided_id: {user_in.client_provided_id}, username: {default_username}")
 
     return db_user
 
@@ -74,7 +74,7 @@ def create_user_from_pgs_info(db: Session, user_in: UserCreateFromPGS) -> User:
     db.commit()
     db.refresh(db_user)
 
-    logging.info(f"Created new user with Play Games Player ID: {user_in.play_games_player_id}, username: {user_in.username}")
+    logger.info(f"Created new user with Play Games Player ID: {user_in.play_games_player_id}, username: {user_in.username}")
 
     return db_user
 
@@ -91,14 +91,14 @@ def create_user_from_google_info(db: Session, user_in: UserCreateFromGoogle, com
             db.commit()
             db.refresh(db_user)
         except Exception as e:
-            logging.exception(f"Error committing new user to DB: {e}")
+            logger.exception(f"Error committing new user to DB: {e}")
             db.rollback() # Rollback on error during commit
             raise e
     else:
         db.flush()
         db.refresh(db_user)
 
-    logging.info(f"Created new user with Google ID: {user_in.google_id}, username: {user_in.username}")
+    logger.info(f"Created new user with Google ID: {user_in.google_id}, username: {user_in.username}")
 
     return db_user
 
@@ -112,7 +112,7 @@ def update_user_login_info(db: Session, user: User) -> User:
     db.commit()
     db.refresh(user)
 
-    logging.info(f"Updated login info for user: {user.username} (ID: {user.id})")
+    logger.info(f"Updated login info for user: {user.username} (ID: {user.id})")
 
     return user
 
@@ -146,7 +146,7 @@ def create_user_admin(db: Session, user_data: Dict[str, Any]) -> User:
     db.commit()
     db.refresh(db_user)
 
-    logging.info(f"Admin created new user: {db_user.username} (ID: {db_user.id}) with data: {user_data}")
+    logger.info(f"Admin created new user: {db_user.username} (ID: {db_user.id}) with data: {user_data}")
 
     return db_user
 
@@ -176,11 +176,11 @@ def update_user_admin(db: Session, user_id: int, user_update_data: Dict[str, Any
         db.commit()
         db.refresh(db_user)
 
-        logging.info(f"Admin updated user {db_user.username} (ID: {db_user.id}) with data: {user_update_data}")
+        logger.info(f"Admin updated user {db_user.username} (ID: {db_user.id}) with data: {user_update_data}")
 
         return db_user
     
-    logging.error(f"Admin tried to update non-existent user with ID: {user_id}")
+    logger.error(f"Admin tried to update non-existent user with ID: {user_id}")
     return None
 
 def delete_user_admin(db: Session, user_id: int) -> bool:
@@ -189,11 +189,11 @@ def delete_user_admin(db: Session, user_id: int) -> bool:
     if db_user:
         db.delete(db_user)
         db.commit()
-        logging.info(f"Admin deleted user with ID: {user_id} (Username: {db_user.username})")
+        logger.info(f"Admin deleted user with ID: {user_id} (Username: {db_user.username})")
 
         return True
     
-    logging.error(f"Admin tried to delete non-existent user with ID: {user_id}")
+    logger.error(f"Admin tried to delete non-existent user with ID: {user_id}")
     return False
 
 def get_all_users_paginated(db: Session, skip: int = 0, limit: int = 100) -> list[User]:
@@ -204,7 +204,7 @@ def add_experience_to_user(db: Session, user_id: int, exp_to_add: int) -> User |
     user = get_user(db, user_id=user_id)
     if user:
         user.experience += exp_to_add
-        logging.info(f"User {user_id} ({user.username}) gained {exp_to_add} XP. Total XP: {user.experience}, Level: {user.level}")
+        logger.info(f"User {user_id} ({user.username}) gained {exp_to_add} XP. Total XP: {user.experience}, Level: {user.level}")
 
         # Leveling up logic
         # Example: XP needed for next level = current_level * XP_PER_LEVEL_BASE
@@ -213,7 +213,7 @@ def add_experience_to_user(db: Session, user_id: int, exp_to_add: int) -> User |
         while user.experience >= xp_needed_for_next_level:
             user.level += 1
             xp_needed_for_next_level = user.level * settings.XP_PER_LEVEL_BASE * settings.XP_PER_LEVEL_MULTIPLIER ** (user.level - 1)
-            logging.info(f"User {user_id} ({user.username}) leveled up to Level {user.level}! XP remaining: {user.experience}")
+            logger.info(f"User {user_id} ({user.username}) leveled up to Level {user.level}! XP remaining: {user.experience}")
            
         
         db.commit()
@@ -228,6 +228,6 @@ def increment_user_words_count(db: Session, user_id: int, count: int = 1) -> Use
         user.words_count = (user.words_count or 0) + count # Handle if words_count was somehow None
         db.commit()
         db.refresh(user)
-        logging.debug(f"User {user_id} ({user.username}) words_count incremented to {user.words_count}")
+        logger.debug(f"User {user_id} ({user.username}) words_count incremented to {user.words_count}")
         return user
     return None

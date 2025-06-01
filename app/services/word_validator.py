@@ -51,7 +51,7 @@ def validate_word_against_prompt(
     )
 
     if previous_submission:
-        logging.debug(f"VALIDATION CACHE: Word='{word}' (prompt_id={sentence_prompt_id}) previously submitted. Validity: {previous_submission.is_valid}, Creativity: {previous_submission.creativity_score}")
+        logger.debug(f"VALIDATION CACHE: Word='{word}' (prompt_id={sentence_prompt_id}) previously submitted. Validity: {previous_submission.is_valid}, Creativity: {previous_submission.creativity_score}")
         return WordValidationResult(
             is_valid=previous_submission.is_valid,
             creativity_score=previous_submission.creativity_score,
@@ -59,10 +59,10 @@ def validate_word_against_prompt(
         )
 
     # 2. If not previously submitted, perform validation using Gemini
-    logging.debug(f"VALIDATION GEMINI: Word='{word}' (prompt_id={sentence_prompt_id}) not previously submitted. Calling Gemini.")
+    logger.debug(f"VALIDATION GEMINI: Word='{word}' (prompt_id={sentence_prompt_id}) not previously submitted. Calling Gemini.")
 
     if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
-        logging.error("Error: GEMINI_API_KEY is not configured.")
+        logger.error("Error: GEMINI_API_KEY is not configured.")
         # Not logging submission here as per instruction (calling service will log)
         return WordValidationResult(is_valid=False, creativity_score=None, error_message="Gemini API key not configured")
 
@@ -71,7 +71,7 @@ def validate_word_against_prompt(
         # TODO: Confirm specific model name if 'gemini-1.5-flash-latest' isn't the exact desired one
         model = genai.GenerativeModel('gemini-1.5-flash-latest') 
     except Exception as e:
-        logging.exception(f"Error configuring Gemini client: {e}")
+        logger.exception(f"Error configuring Gemini client: {e}")
         # Not logging submission here
         return WordValidationResult(is_valid=False, creativity_score=None, error_message=f"Gemini client configuration error: {e}")
 
@@ -162,13 +162,13 @@ Don't be too harsh, if the word is a reasonable response to the prompt, consider
         if gemini_reason is None: # Should not happen with the new check above, but as a final safety.
             gemini_reason = "Reason processing failed."
 
-        logging.debug(f"Gemini judgment for '{word}': Valid={gemini_is_valid}, Creativity={gemini_creativity_score}, Reason='{gemini_reason}'")
+        logger.debug(f"Gemini judgment for '{word}': Valid={gemini_is_valid}, Creativity={gemini_creativity_score}, Reason='{gemini_reason}'")
 
     except json.JSONDecodeError as e:
-        logging.exception(f"Error decoding JSON from Gemini: {e}. Response: {response.text if 'response' in locals() else 'N/A'}")
+        logger.exception(f"Error decoding JSON from Gemini: {e}. Response: {response.text if 'response' in locals() else 'N/A'}")
         gemini_reason = f"JSON decode error: {e}"
     except Exception as e:
-        logging.exception(f"Error calling Gemini or processing response: {e}")
+        logger.exception(f"Error calling Gemini or processing response: {e}")
         gemini_reason = f"Gemini processing error: {e}"
 
     # As per instruction, the calling service will handle logging the submission.

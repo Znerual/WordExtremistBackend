@@ -66,7 +66,7 @@ class GameConnectionManager:
 	async def send_to_player(self, game_id: str, user_id: int, message: dict): # Use user_id (int)
 		if game_id in self.active_connections and user_id in self.active_connections[game_id]:
 			connection = self.active_connections[game_id][user_id]
-			logger.debug("Sending message to player", user_id, "in game", game_id, ":", message.get("type"))
+			logger.debug(f"Sending message to player {user_id} in game {game_id}: {message.get('type')}")
 			await self._send_json_safe(connection, message, user_id, game_id) # Pass user_id
 
 	async def _send_json_safe(self, connection: WebSocket, message: dict, user_id: int, game_id: str): # Use user_id (int)

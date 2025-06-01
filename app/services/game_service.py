@@ -312,7 +312,7 @@ def process_player_game_action(
                 # Optionally, if you wanted to send this specific update to clients, you could.
                 # For now, the count will be reflected next time user profile is fetched (e.g., on LauncherActivity onResume).
                 # Or if you had level/xp/words_count in GameStatePlayer, you would update it here.
-                logger.debug("GameService", f"Player {acting_player_id} new words_count: {updated_player_after_word_count.words_count}")
+                logger.debug(f"Player {acting_player_id} new words_count: {updated_player_after_word_count.words_count}")
 
             current_game_state.players[acting_player_id].words_played.append(action_payload.get("word")) # Original case
             current_game_state.words_played_this_round_all.append(word)

@@ -36,9 +36,3 @@ def get_settings():
     return Settings()
 
 settings = get_settings()
-
-# --- ADD THIS DEBUG PRINT ---
-print("--- DEBUG: Loaded Settings ---")
-print(f"DATABASE_URL from settings: {settings.POSTGRES_DATABASE_URL}")
-print(f"PROJECT_NAME from settings: {settings.PROJECT_NAME}") # Just to see if other .env vars load
-print("--- END DEBUG ---")

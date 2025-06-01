@@ -28,32 +28,38 @@ def configure_logging_from_file():
     try:
         with open(config_file) as f_in:
             config = json.load(f_in)
-        
+
         log_dir = pathlib.Path("logs")
         log_dir.mkdir(exist_ok=True)
 
         logging.config.dictConfig(config)
-        
+
         # Find the QueueHandler instance to start/stop its listener later
         root_logger = logging.getLogger()
         for handler in root_logger.handlers:
             if isinstance(handler, logging.handlers.QueueHandler):
                 _queue_handler_instance = handler
                 break
-        
+
         if not _queue_handler_instance:
-            # This log might go to a default handler if root has no handlers yet,
-            # or if dictConfig itself fails before setting up handlers.
-            # A print might be more reliable here if dictConfig itself could fail.
-            # However, if dictConfig succeeds but no QueueHandler is found, this will use the configured logging.
-            logging.getLogger("app.main.logging_setup").error(
+            # Use a temporary logger name to avoid conflict if "app.main" isn't configured yet
+            temp_logger = logging.getLogger("app.main.logging_setup_check")
+            temp_logger.error(
                 "QueueHandler not found in root logger. Off-thread logging will not work as intended."
             )
+    except FileNotFoundError:
+        print(f"ERROR: Logging configuration file not found at {config_file}. Falling back to basic stdout logging.")
+        logging.basicConfig(level=logging.INFO, format='%(levelname)-8s [%(name)s] %(message)s')
+        logging.getLogger("app.main.logging_setup_fallback").error("Logging configuration file missing.", exc_info=True)
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Failed to parse logging configuration file {config_file}: {e}. Falling back to basic stdout logging.")
+        logging.basicConfig(level=logging.INFO, format='%(levelname)-8s [%(name)s] %(message)s')
+        logging.getLogger("app.main.logging_setup_fallback").error("Logging configuration JSON error.", exc_info=True)
     except Exception as e:
-        # Fallback to basic config if file loading or dictConfig fails
+        # Fallback to basic config if file loading or dictConfig fails for other reasons
         print(f"ERROR: Failed to configure logging from file: {e}. Falling back to basic stdout logging.")
         logging.basicConfig(level=logging.INFO, format='%(levelname)-8s [%(name)s] %(message)s')
-        logging.getLogger("app.main.logging_setup").error("Logging configuration failed.", exc_info=True)
+        logging.getLogger("app.main.logging_setup_fallback").error("General logging configuration failed.", exc_info=True)
 
 
 # Configure logging when the module is loaded. Listener is started/stopped by lifespan.
@@ -67,9 +73,43 @@ def create_tables():
 create_tables()
 
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Code to execute during application startup
+    logger.info("Application startup sequence initiated...")
+    if _queue_handler_instance and hasattr(_queue_handler_instance, 'listener'):
+        try:
+            _queue_handler_instance.listener.start()
+            logger.info("Logging QueueListener started successfully via lifespan.")
+        except Exception as e:
+            logger.error(f"Failed to start QueueListener in lifespan: {e}", exc_info=True)
+    else:
+        logger.warning("QueueHandler or its listener not found during startup; off-thread logging might not be active.")
+
+    # --- Your other startup logic ---
+    # Example: Create tables if not using Alembic migrations and want it on app start
+    # create_tables()
+    # logger.info("Database tables checked/created (if applicable).")
+    # ---
+
+    yield  # This is where the application will run
+
+    # Code to execute during application shutdown
+    logger.info("Application shutdown sequence initiated...")
+    if _queue_handler_instance and hasattr(_queue_handler_instance, 'listener'):
+        try:
+            logger.info("Attempting to stop Logging QueueListener...")
+            _queue_handler_instance.listener.stop()
+            logger.info("Logging QueueListener stopped successfully via lifespan.")
+        except Exception as e:
+            logger.error(f"Failed to stop QueueListener gracefully in lifespan: {e}", exc_info=True)
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # Include Routers
@@ -79,7 +119,7 @@ app.include_router(matchmaking_router.router, prefix=settings.API_V1_STR + "/mat
 app.include_router(game_data_router.router, prefix=settings.API_V1_STR + "/game-content", tags=["Game Content"])
 app.include_router(websocket_router.router, tags=["Game Sockets"]) # WebSockets usually don't have API prefix
 
-# --- Add this block for debugging ---
+
 logger.info("--- FastAPI Registered Routes ---")
 for route in app.routes:
     if isinstance(route, APIRoute):
@@ -91,38 +131,6 @@ for route in app.routes:
     else:
         logger.info(f"Other Route Type: {type(route)}")
 logger.info("--- End Registered Routes ---\n")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Code to execute during application startup
-    logger.info("Application startup sequence initiated...")
-    if _queue_handler_instance and hasattr(_queue_handler_instance, 'listener'):
-        try:
-            _queue_handler_instance.listener.start()
-            logger.info("Logging QueueListener started successfully.")
-        except Exception as e:
-            logger.error(f"Failed to start QueueListener: {e}", exc_info=True)
-    else:
-        logger.warning("QueueHandler or its listener not found; off-thread logging might not be active.")
-
-    # --- Your other startup logic (e.g., DB checks, initial data loading) ---
-    # For example, if you're not using Alembic and want to ensure tables:
-    # create_tables()
-    # logger.info("Database tables checked/created (if not using Alembic).")
-    # ---
-
-    yield  # This is where the application will run
-
-    # Code to execute during application shutdown
-    logger.info("Application shutdown sequence initiated...")
-    if _queue_handler_instance and hasattr(_queue_handler_instance, 'listener'):
-        try:
-            logger.info("Attempting to stop Logging QueueListener...")
-            _queue_handler_instance.listener.stop()
-            logger.info("Logging QueueListener stopped successfully.")
-        except Exception as e:
-            logger.error(f"Failed to stop QueueListener gracefully: {e}", exc_info=True)
-    # --- Your other shutdown logic (e.g., closing DB connections if not handled by SessionLocal) ---
 
 
 @app.get(settings.API_V1_STR + "/health", tags=["Health Check"])

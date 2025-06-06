@@ -1,7 +1,7 @@
 # app/api/matchmaking.py
 import logging
 from fastapi import APIRouter, Depends, HTTPException,  Query
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 
 from sqlalchemy.orm import Session
 from app.services import matchmaking_service
@@ -19,6 +19,7 @@ class MatchmakingStatusResponse(BaseModel):
     language: str | None = None
     opponent_name: str | None = None
     opponent_level: int | None = None
+    opponent_profile_pic_url: HttpUrl | None = None
     player1_id: int | None = None
     player2_id: int | None = None
     your_player_id_in_game: int | None = None
@@ -77,11 +78,11 @@ async def find_match(
         logger.info(f"Match found via /find: {game_id} (Lang: {game_lang}) for {p1.username} vs {p2.username}")
         
         player_match_status[p1.id] = MatchmakingStatusResponse(
-            status="matched", game_id=game_id, language=game_lang, opponent_name=p2.username,
+            status="matched", game_id=game_id, language=game_lang, opponent_name=p2.username, opponent_profile_pic_url=str(p2.profile_pic_url) if p2.profile_pic_url else None,
             player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p1.id, opponent_level=p2.level
         )
         player_match_status[p2.id] = MatchmakingStatusResponse(
-            status="matched", game_id=game_id, language=game_lang, opponent_name=p1.username,
+            status="matched", game_id=game_id, language=game_lang, opponent_name=p1.username, opponent_profile_pic_url=str(p1.profile_pic_url) if p1.profile_pic_url else None,
             player1_id=p1.id, player2_id=p2.id, your_player_id_in_game=p2.id, opponent_level=p1.level
         )
 

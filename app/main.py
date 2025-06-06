@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute, APIWebSocketRoute, Mount
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api import admin as admin_router
 from app.api import auth as auth_router
@@ -112,13 +113,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.mount("/static", StaticFiles(directory=settings.UPLOADS_DIR.parent), name="static")
+
 # Include Routers
 app.include_router(auth_router.router, prefix=settings.API_V1_STR + "/auth", tags=["Auth"])
-app.include_router(admin_router.router, prefix="/admin", include_in_schema=False)  # Admin routes are not in OpenAPI schema
 app.include_router(matchmaking_router.router, prefix=settings.API_V1_STR + "/matchmaking", tags=["Matchmaking"])
 app.include_router(game_data_router.router, prefix=settings.API_V1_STR + "/game-content", tags=["Game Content"])
 app.include_router(websocket_router.router, tags=["Game Sockets"]) # WebSockets usually don't have API prefix
-
+app.include_router(admin_router.router, prefix="/admin", include_in_schema=False)  # Admin routes are not in OpenAPI schema
 
 logger.info("--- FastAPI Registered Routes ---")
 for route in app.routes:

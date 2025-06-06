@@ -1,7 +1,10 @@
 # app/api/auth.py
 import logging
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+import pathlib
+import shutil
+from typing import List, Optional
+import uuid
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -202,6 +205,7 @@ async def link_device_with_google_account(
             detail="An error occurred during Google sign-in processing."
         )
 
+
 @router.get("/users/me", response_model=UserPublic)
 async def read_users_me(
     current_user: UserPublic = Depends(deps.get_current_active_user) # Uses Google ID Token
@@ -231,3 +235,55 @@ async def get_my_words(
     ]
     
     return response_data
+
+@router.patch("/users/me", response_model=UserPublic)
+async def update_current_user_profile(
+    current_user_from_token: UserPublic = Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db),
+    username: Optional[str] = Form(None),
+    profile_picture: Optional[UploadFile] = File(None)
+):
+    """
+    Update the current authenticated user's profile.
+    Can update username, profile picture, or both.
+    """
+    user_id = current_user_from_token.id
+    db_user = crud_user.get_user(db, user_id=user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    update_data = {}
+
+    if username is not None and username.strip() != db_user.username:
+        update_data["username"] = username.strip()
+
+    if profile_picture is not None:
+        if profile_picture.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+            raise HTTPException(status_code=400, detail="Invalid file type. Please upload a JPG or PNG.")
+
+        file_extension = pathlib.Path(profile_picture.filename).suffix
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        save_path = settings.UPLOADS_DIR / unique_filename
+
+        try:
+            with save_path.open("wb") as buffer:
+                shutil.copyfileobj(profile_picture.file, buffer)
+            
+            file_url = f"{settings.STATIC_FILES_BASE_URL}/static/uploads/{unique_filename}"
+            update_data["profile_pic_url"] = file_url
+            logger.info(f"User {user_id} uploaded new profile picture. Saved to {save_path}, URL: {file_url}")
+
+        except Exception as e:
+            logger.exception(f"Failed to save uploaded file for user {user_id}: {e}")
+            raise HTTPException(status_code=500, detail="Could not save file.")
+        finally:
+            profile_picture.file.close()
+
+    if not update_data:
+        return db_user
+
+    updated_user = crud_user.update_user_admin(db, user_id=user_id, user_update_data=update_data)
+    if not updated_user:
+        raise HTTPException(status_code=500, detail="Failed to update user in database.")
+
+    return updated_user

@@ -1,12 +1,22 @@
 # app/core/config.py
+import pathlib
+import logging
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+
+logger = logging.getLogger("app.core.config")  # Logger for this module
+
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Word Extremist Backend"
     API_V1_STR: str = "/api/v1"
     POSTGRES_DATABASE_URL: str = "postgresql://postgres:1234@localhost:5432/word_extremist_db"
     GOOGLE_CLIENT_ID: str = "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com" # From Google Cloud Console
+
+    STATIC_FILES_BASE_URL: str = "http://10.0.2.2:8000"
+    # The local directory path where uploaded files are stored.
+    UPLOADS_DIR: pathlib.Path = BASE_DIR / "static" / "uploads"
 
     GOOGLE_WEB_CLIENT_SECRET: str = "YOUR_WEB_OAUTH_CLIENT_SECRET"
     # You might also need your Play Games Services Project ID here if making direct PGS API calls
@@ -33,6 +43,9 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings():
-    return Settings()
+    settings_instance = Settings()
+    settings_instance.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Uploads directory set to: {settings_instance.UPLOADS_DIR}")
+    return settings_instance
 
 settings = get_settings()

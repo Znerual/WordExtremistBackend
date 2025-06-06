@@ -82,6 +82,7 @@ async def get_current_user_from_backend_jwt( # Renamed for clarity
         user_id_str: str | None = payload.get("sub") # Expect user.id as string
 
         if user_id_str is None:
+            logger.error("Backend JWT validation failed: 'sub' field missing.")
             raise credentials_exception
         
         try:
@@ -103,6 +104,7 @@ async def get_current_user_from_backend_jwt( # Renamed for clarity
 
         return UserPublic.model_validate(user)
     except HTTPException as e:
+        logger.exception(f"HTTPException in get_current_user_from_backend_jwt: {e.detail}")
         raise e
     except Exception as e:
         logger.exception(f"Unexpected error in get_current_user_from_backend_jwt: {e}")

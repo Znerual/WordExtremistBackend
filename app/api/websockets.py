@@ -252,7 +252,7 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 		gs_on_dc = matchmaking_service.get_full_game_state(game_id)
 		if gs_on_dc : # Only process if game state exists and game was active for this player
 			# Avoid processing disconnect if player was just connected to an already finished game
-			if gs_on_dc.status == "in_progress" or (gs_on_dc.status == "matched" and len(gs_on_dc._temp_player_ids_ordered) > 0):
+			if gs_on_dc.status == "in_progress" or (gs_on_dc.status == "matched"):
 				updated_gs_after_dc, dc_events = game_service.handle_player_disconnect(
 					gs_on_dc, player_id_of_this_connection, db
 				)

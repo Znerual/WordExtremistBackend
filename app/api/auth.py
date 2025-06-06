@@ -1,5 +1,6 @@
 # app/api/auth.py
 import logging
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -7,7 +8,8 @@ from pydantic import BaseModel
 from app.api import deps
 from app.core import security
 from app.models.user import DeviceLoginRequest, BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle
-from app.crud import crud_user
+from app.models.game_log_display import UserWordVaultEntry
+from app.crud import crud_user, crud_game_log
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.core.security import verify_google_id_token
 from app.core.config import settings
@@ -64,7 +66,8 @@ async def login_with_device_credentials(
     db.commit()
     db.refresh(user)
 
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires_minutes = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    access_token_expires_delta = timedelta(minutes=access_token_expires_minutes)
     # The 'sub' of your JWT will be the client_provided_id for this scheme.
     # Or you could use user.id (database primary key) as 'sub' for consistency if other auth methods use it.
     # Let's use user.id (database PK) as 'sub' to be consistent with potential future auth methods.
@@ -72,9 +75,9 @@ async def login_with_device_credentials(
     jwt_payload_data = {"sub": str(user.id), "cpid": user.client_provided_id}
     
     access_token = create_access_token(
-        data=jwt_payload_data, expires_delta=access_token_expires
+        data=jwt_payload_data, expires_delta=access_token_expires_delta
     )
-    return BackendToken(access_token=access_token, token_type="bearer", user=user)
+    return BackendToken(access_token=access_token, token_type="bearer", user=user, expires_in=int(access_token_expires_delta.total_seconds()))
 
 # --- REMOVE or DEACTIVATE the old /user/get-or-create endpoint ---
 # It's now superseded by /device-login
@@ -205,3 +208,26 @@ async def read_users_me(
 ):
     """Get current authenticated user's profile."""
     return current_user
+
+@router.get("/users/me/words", response_model=List[UserWordVaultEntry])
+async def get_my_words(
+    current_user: UserPublic = Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db)
+):
+    """Get all valid words ever submitted by the current user for the Word Vault."""
+    user_id = current_user.id
+    # Call the new CRUD function
+    word_entries_raw = crud_game_log.get_all_word_vault_entries_for_user(db, user_id=user_id)
+    
+    # Map the raw tuple results to our Pydantic response model
+    response_data = [
+        UserWordVaultEntry(
+            submitted_word=word,
+            creativity_score=score,
+            sentence_text=sentence,
+            prompt_text=prompt
+        )
+        for word, score, sentence, prompt in word_entries_raw
+    ]
+    
+    return response_data

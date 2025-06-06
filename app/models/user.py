@@ -45,7 +45,8 @@ class BackendToken(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserPublic | None = None  # Optional: Include user info if needed
-
+    expires_in: int
+    
 class ServerAuthCodeRequest(BaseModel):
     server_auth_code: str
 

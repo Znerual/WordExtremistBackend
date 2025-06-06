@@ -1,9 +1,10 @@
 import logging
-from typing import Optional
+from typing import List, Optional
 from sqlalchemy.orm import Session, joinedload
 from app.schemas.game_log import Game, GamePlayer, WordSubmission
 from app.schemas.user import User # To type hint
 import datetime
+from app.schemas.game_content import SentencePrompt
 
 logger = logging.getLogger("app.crud.game_log")  # Logger for this module
 
@@ -51,6 +52,26 @@ def log_word_submission(
     db.commit()
     db.refresh(db_submission)
     return db_submission
+
+def get_all_word_vault_entries_for_user(db: Session, user_id: int) -> List[tuple]:
+    """
+    Retrieves all valid word submissions for a user, along with their context (sentence and prompt).
+    The data is sorted by creativity score (best first), then by date.
+    Returns a list of tuples: (submitted_word, creativity_score, sentence_text, prompt_text)
+    """
+    return (
+        db.query(
+            WordSubmission.submitted_word,
+            WordSubmission.creativity_score,
+            SentencePrompt.sentence_text,
+            SentencePrompt.prompt_text
+        )
+        .join(SentencePrompt, WordSubmission.sentence_prompt_id == SentencePrompt.id)
+        .filter(WordSubmission.user_id == user_id)
+        .filter(WordSubmission.is_valid == True)  # Only show valid words in the vault
+        .order_by(WordSubmission.creativity_score.desc().nullslast(), WordSubmission.submission_timestamp.desc())
+        .all()
+    )
 
 def update_game_player_score(db: Session, game_db_id: int, user_id: int, new_score: int):
     db_game_player = db.query(GamePlayer).filter(

@@ -41,3 +41,13 @@ class GamePublic(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserWordVaultEntry(BaseModel):
+    """Represents a single word entry for the user's word vault."""
+    submitted_word: str
+    creativity_score: Optional[int]
+    sentence_text: str
+    prompt_text: str
+
+    class Config:
+        from_attributes = True

@@ -78,8 +78,8 @@
         },
         "sqlalchemy.engine": {
              "handlers": [],
-             "level": "INFO",
-             "propagate": true
+             "level": "WARNING",
+             "propagate": false
         }
     },
     "root": {

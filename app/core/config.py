@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     POSTGRES_DATABASE_URL: str = "postgresql://postgres:1234@localhost:5432/word_extremist_db"
     GOOGLE_CLIENT_ID: str = "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com" # From Google Cloud Console
+    MONITORING_SNAPSHOT_INTERVAL_SECONDS: int = 3600  # Default to 1 hour
 
     STATIC_FILES_BASE_URL: str = "http://10.0.2.2:8000"
     # The local directory path where uploaded files are stored.

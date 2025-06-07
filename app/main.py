@@ -207,7 +207,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting monitoring background task...")
     # Run every hour (3600s). For testing, you can set it to a lower value like 60.
-    _monitoring_task = asyncio.create_task(capture_monitoring_snapshot_task(60))
+    _monitoring_task = asyncio.create_task(capture_monitoring_snapshot_task(settings.MONITORING_SNAPSHOT_INTERVAL_SECONDS))
 
     yield  # This is where the application will run
 

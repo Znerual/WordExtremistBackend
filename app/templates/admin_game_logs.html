@@ -1,52 +1,19 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Admin - Game Logs</title>
-    <style>
-        body { font-family: sans-serif; margin: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .container { margin-bottom: 30px; }
-        h1, h2, h3 { color: #333; }
-        .message { padding: 10px; margin-bottom: 15px; border-radius: 5px; }
-        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .pagination { margin-top: 10px; }
-        .pagination a { margin-right: 5px; text-decoration: none; padding: 5px 10px; border: 1px solid #ccc; }
-        .pagination strong { margin-right: 5px; padding: 5px 10px; border: 1px solid #ccc; background-color: #f0f0f0; }
-        .edit-link { font-size: 0.8em; }
-    </style>
-</head>
-<body>
-    <h1>Admin - Game Logs</h1>
+{% extends "admin_base.html" %}
 
-    {% if message %}
-        <div class="message {{ 'success' if success else 'error' }}">
-            {{ message }}
-        </div>
-    {% endif %}
+{% block title %}Game Logs{% endblock %}
 
-    <!-- Navigation to other admin pages -->
-    <p>
-        <a href="/admin/add-sentence-prompt">Manage Sentence Prompts</a>
-    </p>
-
-    <!-- Games List -->
-    <div class="container">
-        <h2>Games (Total: {{ games_total }})</h2>
+{% block content %}
+<div class="card">
+    <h1 class="page-title">Games (Total: {{ games_total }})</h1>
+    <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
                     <th>DB ID</th>
-                    <th>Matchmaking ID</th>
-                    <th>Winner User ID</th>
+                    <th>Winner</th>
                     <th>Status</th>
                     <th>Start Time</th>
-                    <th>End Time</th>
                     <th>Players</th>
-                    <th>Submissions</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -54,100 +21,70 @@
                 {% for game in games %}
                 <tr>
                     <td>{{ game.id }}</td>
-                    <td>{{ game.matchmaking_game_id }}</td>
                     <td>{{ game.winner_user_id if game.winner_user_id else 'N/A' }}</td>
                     <td>{{ game.status }}</td>
-                    <td>{{ game.start_time.strftime('%Y-%m-%d %H:%M:%S') if game.start_time else '' }}</td>
-                    <td>{{ game.end_time.strftime('%Y-%m-%d %H:%M:%S') if game.end_time else '' }}</td>
+                    <td>{{ game.start_time.strftime('%Y-%m-%d %H:%M') if game.start_time else '' }}</td>
                     <td>
-                        <ul>
+                        <ul style="padding-left:0; list-style:none; margin:0;">
                         {% for gp in game.players_association %}
                             <li>User {{ gp.user_id }}: Score {{ gp.score }}</li>
                         {% endfor %}
                         </ul>
                     </td>
-                    <td>{{ game.word_submissions | length }}</td>
-                    <td>
-                        <a href="/admin/game/{{ game.id }}/edit" class="edit-link">Edit</a>
-                        <a href="/admin/game/{{ game.id }}/submissions" class="edit-link">View Submissions</a>
+                    <td class="action-links">
+                        <a href="/admin/game/{{ game.id }}/edit" class="edit">Edit</a>
+                        <a href="?submissions_page=1&game_id_filter={{ game.id }}" class="edit">View Subs</a>
                     </td>
                 </tr>
                 {% else %}
-                <tr>
-                    <td colspan="9">No games found.</td>
-                </tr>
+                <tr><td colspan="6" style="text-align:center;">No games found.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
-        <div class="pagination">
-            {% if games_page > 1 %}
-                <a href="?games_page={{ games_page - 1 }}&submissions_page={{ submissions_page }}">Previous</a>
-            {% endif %}
-            <span>Page {{ games_page }} of {{ games_total_pages }}</span>
-            {% if games_page < games_total_pages %}
-                <a href="?games_page={{ games_page + 1 }}&submissions_page={{ submissions_page }}">Next</a>
-            {% endif %}
-        </div>
     </div>
+    <div class="pagination">
+        {% if games_page > 1 %}<a href="?games_page={{ games_page - 1 }}&submissions_page={{ submissions_page }}">Previous</a>{% endif %}
+        <span class="current">Page {{ games_page }} of {{ games_total_pages }}</span>
+        {% if games_page < games_total_pages %}<a href="?games_page={{ games_page + 1 }}&submissions_page={{ submissions_page }}">Next</a>{% endif %}
+    </div>
+</div>
 
-    <!-- Word Submissions (can be filtered by game or all) -->
-    <div class="container">
-        <h2>
-            Word Submissions 
-            {% if selected_game_id_for_submissions %}
-                for Game DB ID: {{ selected_game_id_for_submissions }}
-            {% endif %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1 class="page-title">
+            Word Submissions
+            {% if selected_game_id_for_submissions %} for Game ID: {{ selected_game_id_for_submissions }}{% endif %}
             (Total: {{ submissions_total }})
-        </h2>
+        </h1>
         {% if selected_game_id_for_submissions %}
-            <p><a href="/admin/game-logs">Show all submissions</a></p>
+            <a href="/admin/game-logs" class="btn btn-secondary">Show All Submissions</a>
         {% endif %}
+    </div>
+    <div class="table-wrapper">
         <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Game DB ID</th>
-                    <th>Round</th>
-                    <th>User ID</th>
-                    <th>Sentence Prompt ID</th>
-                    <th>Submitted Word</th>
-                    <th>Time (ms)</th>
-                    <th>Is Valid</th>
-                    <th>Timestamp</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
+            <thead><tr><th>ID</th><th>Game ID</th><th>User ID</th><th>Word</th><th>Valid</th><th>Timestamp</th><th>Actions</th></tr></thead>
             <tbody>
                 {% for sub in submissions %}
                 <tr>
                     <td>{{ sub.id }}</td>
                     <td>{{ sub.game_id }}</td>
-                    <td>{{ sub.round_number }}</td>
                     <td>{{ sub.user_id }}</td>
-                    <td>{{ sub.sentence_prompt_id }}</td>
                     <td>{{ sub.submitted_word }}</td>
-                    <td>{{ sub.time_taken_ms if sub.time_taken_ms is not none else 'N/A' }}</td>
-                    <td>{{ sub.is_valid }}</td>
-                    <td>{{ sub.submission_timestamp.strftime('%Y-%m-%d %H:%M:%S') if sub.submission_timestamp else '' }}</td>
-                    <td><a href="/admin/submission/{{ sub.id }}/edit" class="edit-link">Edit</a></td>
+                    <td>{{ '✅' if sub.is_valid else '❌' }}</td>
+                    <td>{{ sub.submission_timestamp.strftime('%Y-%m-%d %H:%M') if sub.submission_timestamp else '' }}</td>
+                    <td class="action-links"><a href="/admin/submission/{{ sub.id }}/edit" class="edit">Edit</a></td>
                 </tr>
                 {% else %}
-                <tr>
-                    <td colspan="10">No submissions found.</td>
-                </tr>
+                <tr><td colspan="7" style="text-align:center;">No submissions found.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
-        <div class="pagination">
-            {% if submissions_page > 1 %}
-                <a href="?games_page={{ games_page }}&submissions_page={{ submissions_page - 1 }}{{ '&game_id_filter=' + selected_game_id_for_submissions if selected_game_id_for_submissions }}">Previous</a>
-            {% endif %}
-            <span>Page {{ submissions_page }} of {{ submissions_total_pages }}</span>
-            {% if submissions_page < submissions_total_pages %}
-                <a href="?games_page={{ games_page }}&submissions_page={{ submissions_page + 1 }}{{ '&game_id_filter=' + selected_game_id_for_submissions if selected_game_id_for_submissions }}">Next</a>
-            {% endif %}
-        </div>
     </div>
-
-</body>
-</html>
+    <div class="pagination">
+        {% set filter_q = '&game_id_filter=' + (selected_game_id_for_submissions|string) if selected_game_id_for_submissions else '' %}
+        {% if submissions_page > 1 %}<a href="?games_page={{ games_page }}&submissions_page={{ submissions_page - 1 }}{{ filter_q }}">Previous</a>{% endif %}
+        <span class="current">Page {{ submissions_page }} of {{ submissions_total_pages }}</span>
+        {% if submissions_page < submissions_total_pages %}<a href="?games_page={{ games_page }}&submissions_page={{ submissions_page + 1 }}{{ filter_q }}">Next</a>{% endif %}
+    </div>
+</div>
+{% endblock %}

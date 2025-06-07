@@ -6,7 +6,7 @@ from typing import Dict, Any, Tuple, List, Literal
 
 from app.models.game import GameState, SentencePromptPublic
 from app.models.validation import WordValidationResult # Added import
-from app.crud import crud_game_content, crud_user # To fetch new sentences
+from app.crud import crud_game_content, crud_user, crud_system # To fetch new sentences
 from app.services.word_validator import validate_word_against_prompt
 from app.crud import crud_game_log
 from app.core.config import settings # For XP and other constants
@@ -65,11 +65,19 @@ def initialize_new_game_state(
     # Fetch initial sentence prompt for the game's language
     initial_sentence_db = crud_game_content.get_random_sentence_prompt(db, language=game_language)
     if not initial_sentence_db:
-        error_payload = {"message": f"Failed to load game content for language '{game_language}'. Game cannot start."}
+        error_msg = f"Failed to load game content for language '{game_language}'. Game cannot start."
+        logger.error(f"{error_msg} for game {game_id}")
+        crud_system.create_alert(
+            db, 
+            level="CRITICAL", 
+            message="Game content loading failed", 
+            details=f"No sentence prompts found for language '{game_language}'. Check the `sentenceprompts` table."
+        )
+        error_payload = {"message": error_msg}
         error_event = GameEvent(event_type="error_message_broadcast", payload=error_payload, broadcast=True)
         events.append(error_event)
         initial_game_state_from_matchmaking.status = "error_content_load"
-        logger.error(f"Failed to load initial sentence prompt for game {game_id} in language '{game_language}'.")
+      
         return initial_game_state_from_matchmaking, events
 
     initial_sentence_prompt = SentencePromptPublic.model_validate(initial_sentence_db)
@@ -225,6 +233,7 @@ def process_player_game_action(
     Modifies current_game_state IN PLACE.
     """
     events: List[GameEvent] = []
+    crud_user.log_daily_active_user(db, user_id=acting_player_id)
     
     p1_id = current_game_state.matchmaking_player_order[0]
     p2_id = current_game_state.matchmaking_player_order[1]
@@ -286,7 +295,7 @@ def process_player_game_action(
             return current_game_state, events
 
         # 2. Validate word against prompt
-        validation_result: WordValidationResult = validate_word_against_prompt(
+        validation_result, gemini_latency = validate_word_against_prompt(
             db=db, word=word, sentence_prompt_id=sentence_prompt_db_id,
             target_word=current_prompt_details.target_word,
             prompt_text=current_prompt_details.prompt_text,
@@ -303,7 +312,8 @@ def process_player_game_action(
                 submitted_word=word, 
                 time_taken_ms=time_taken_ms, 
                 is_valid=validation_result.is_valid, 
-                creativity_score=validation_result.creativity_score)
+                creativity_score=validation_result.creativity_score,
+                validation_latency_ms=gemini_latency)
             except Exception as log_e: logger.exception(f"Error logging new word submission (validity: {validation_result.is_valid}): {log_e}")
 
         if validation_result.is_valid:
@@ -394,6 +404,8 @@ def process_player_game_action(
             next_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
             events.append(GameEvent(event_type="emoji_broadcast", payload=emoji_payload, broadcast=False, target_player_id=next_player_id)) # Keep exclude for sender
             logger.debug(f"Player {acting_player_id} sent emoji '{emoji}' in game {current_game_state.game_id}. Now it's Player {next_player_id}'s turn.")
+            if db_game_id_for_logging:
+                crud_game_log.increment_emojis_sent(db, game_db_id=db_game_id_for_logging, user_id=acting_player_id)
         else:
             logger.error(f"Player {acting_player_id} sent empty emoji in game {current_game_state.game_id}. Ignoring.")
         return current_game_state, events
@@ -474,8 +486,16 @@ def _handle_round_or_game_end(
         current_game_state.winner_user_id = final_winner_id
 
         if db_game_id_for_logging:
-            try: crud_game_log.finalize_game_record(db, game_db_id=db_game_id_for_logging, winner_user_id=final_winner_id, status="finished")
-            except Exception as log_e: logger.exception(f"Error finalizing game DB record {db_game_id_for_logging}: {log_e}")
+            try: 
+                crud_game_log.finalize_game_record(
+                    db, 
+                    game_db_id=db_game_id_for_logging, 
+                    winner_user_id=final_winner_id, 
+                    status="finished",
+                    reason=reason.value,
+                )
+            except Exception as log_e: 
+                logger.exception(f"Error finalizing game DB record {db_game_id_for_logging}: {log_e}")
 
         game_over_reason = reason
         if reason not in [RoundEndReason.DOUBLE_TIMEOUT, RoundEndReason.OPPONENT_DISCONNECTED] and game_is_over:
@@ -532,7 +552,12 @@ def handle_player_disconnect(
 
         if db_game_id_for_logging:
             try:
-                crud_game_log.finalize_game_record(db, game_db_id=db_game_id_for_logging, winner_user_id=forfeit_winner_id, status="abandoned_by_player")
+                crud_game_log.finalize_game_record(
+                    db, 
+                    game_db_id=db_game_id_for_logging, 
+                    winner_user_id=forfeit_winner_id, 
+                    status="abandoned_by_player",
+                    reason=RoundEndReason.OPPONENT_DISCONNECTED.value)
                 logger.info(f"Game {current_game_state.game_id} (DB ID: {db_game_id_for_logging}) marked abandoned by P:{disconnected_player_id}.")
             except Exception as log_e: logger.exception(f"Error marking game abandoned in DB {db_game_id_for_logging}: {log_e}")
     

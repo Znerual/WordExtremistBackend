@@ -18,7 +18,8 @@ class Game(Base):
     start_time = Column(DateTime(timezone=True), server_default=func.now())
     end_time = Column(DateTime(timezone=True), nullable=True)
     status = Column(String, default="in_progress") # e.g., "in_progress", "finished", "abandoned"
-    
+    end_reason = Column(String, nullable=True)
+
     # Overall game winner (if applicable, can be derived from game_players scores too)
     winner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     winner = relationship("User") # Relationship to the User model
@@ -34,6 +35,9 @@ class GamePlayer(Base):
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     score = Column(Integer, default=0) # Final score for this player in this game
+    player_order = Column(Integer)
+    emojis_sent = Column(Integer, default=0)
+
     # player_order = Column(Integer, nullable=True) # e.g., 1 or 2 if you need to distinguish consistently
 
     game = relationship("Game", back_populates="players_association")
@@ -56,7 +60,8 @@ class WordSubmission(Base):
     is_valid = Column(Boolean, nullable=False) # Was the word valid for the prompt?
     submission_timestamp = Column(DateTime(timezone=True), server_default=func.now())
     creativity_score = Column(Integer, nullable=True) # <--- ADD THIS LINE
-
+    validation_latency_ms = Column(Integer, nullable=True)
+    
     game = relationship("Game", back_populates="word_submissions")
     user = relationship("User")
     sentence_prompt = relationship("SentencePrompt") # Relationship to SentencePrompt model

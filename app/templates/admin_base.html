@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Extremist Admin - {% block title %}{% endblock %}</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --light-bg: #f8f9fa;
+            --white-bg: #ffffff;
+            --text-color: #343a40;
+            --border-color: #dee2e6;
+            --card-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--light-bg);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--white-bg);
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 20px;
+        }
+        .header h1 { margin: 0; font-size: 1.5rem; }
+        .header .user-info { font-size: 0.9rem; color: var(--secondary-color); }
+        .header .user-info strong { color: var(--text-color); }
+        .nav-links a {
+            text-decoration: none;
+            color: var(--secondary-color);
+            margin-left: 20px;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover, .nav-links a.active { color: var(--primary-color); }
+        .nav-links a.logout { color: var(--danger-color); }
+
+        .card {
+            background: var(--white-bg);
+            border-radius: 8px;
+            box-shadow: var(--card-shadow);
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        .page-title { margin-top: 0; }
+        .message {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            border: 1px solid transparent;
+        }
+        .success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+
+        /* Tables */
+        .table-wrapper { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 14px; white-space: nowrap; }
+        th { background-color: var(--light-bg); font-weight: 600; }
+        td { vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        .action-links a, .action-links button { text-decoration: none; padding: 4px 8px; border-radius: 4px; font-size: 13px; margin-right: 5px; border: 1px solid transparent; cursor: pointer; }
+        .action-links .edit { background-color: #e9ecef; color: var(--text-color); }
+        .action-links .edit:hover { background-color: #dae0e5; }
+        .action-links .delete { background-color: #ffe8ea; color: var(--danger-color); border-color: var(--danger-color); }
+
+        /* Forms */
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+        .form-group input[type="text"], .form-group input[type="email"], .form-group input[type="password"], .form-group input[type="number"], .form-group textarea {
+            width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;
+        }
+        .checkbox-group { display: flex; align-items: center; gap: 10px; }
+        .form-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 500; text-decoration: none; display: inline-block; text-align: center; }
+        .btn-primary { background-color: var(--primary-color); color: white; }
+        .btn-secondary { background-color: var(--secondary-color); color: white; }
+        .btn-success { background-color: var(--success-color); color: white; }
+        
+        /* Pagination */
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; }
+        .pagination a, .pagination span { padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 4px; text-decoration: none; color: var(--primary-color); }
+        .pagination span.current { background-color: var(--primary-color); color: white; border-color: var(--primary-color); }
+        .pagination a:hover { background-color: #e9ecef; }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Word Extremist</h1>
+            <div class="user-info">
+                Logged in as <strong>{{ user.username or user.email }}</strong>
+                <nav class="nav-links">
+                    <a href="/admin/" class="{{ 'active' if request.url.path == '/admin/' else '' }}">Dashboard</a>
+                    <a href="/admin/monitoring" class="{{ 'active' if 'monitoring' in request.url.path else '' }}">Monitoring</a>
+                    <a href="/admin/logout" class="logout">Logout</a>
+                </nav>
+            </div>
+        </header>
+
+        <main>
+            {% if message %}
+                <div class="message {{ 'success' if success else 'error' }}">
+                    {{ message }}
+                </div>
+            {% endif %}
+            
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

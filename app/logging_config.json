@@ -54,13 +54,18 @@
             "backupCount": 10,
             "encoding": "utf8"
         },
+        "db_alerts": {
+            "()": "app.core.db_logging_handler.DatabaseHandler",
+            "level": "ERROR"
+        },
         "queue_handler": {
             "class": "logging.handlers.QueueHandler",
             "handlers": [
                 "console_info_and_above",
                 "file_debug",
                 "file_info",
-                "file_error"
+                "file_error",
+                "db_alerts"
             ],
             "respect_handler_level": true
         }

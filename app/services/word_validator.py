@@ -1,5 +1,7 @@
 # app/services/word_validator.py
 import logging
+import time
+from typing import Tuple
 from sqlalchemy.orm import Session
 from app.schemas.game_log import WordSubmission # Import your WordSubmission SQLAlchemy model
 import google.generativeai as genai
@@ -8,6 +10,11 @@ from app.core.config import settings
 from app.models.validation import WordValidationResult
 
 logger = logging.getLogger("app.services.word_validator")  # Logger for this module
+
+validation_stats = {
+    "total_calls": 0,
+    "cache_hits": 0
+}
 
 GEMINI_RESPONSE_SCHEMA = {
     "type": "OBJECT",
@@ -30,13 +37,16 @@ def validate_word_against_prompt(
     # game_db_id: int, # Not adding these yet as per instruction
     # round_number: int,
     # user_id: int,
-) -> WordValidationResult: # New return type
+) -> Tuple[WordValidationResult, int]: 
     """
     Validates a word.
     1. Checks if this exact word has been submitted before for this specific sentence_prompt_id.
        If yes, returns its previously determined validity and creativity score.
     2. If not submitted before, performs validation using Gemini.
     """
+    global validation_stats
+    validation_stats["total_calls"] += 1
+
     word_lower = word.strip().lower() # Normalize the word for checking
 
     # 1. Check for previous submission of this word for this prompt
@@ -51,6 +61,7 @@ def validate_word_against_prompt(
     )
 
     if previous_submission:
+        validation_stats["cache_hits"] += 1 # <-- INCREMENT CACHE HITS
         logger.debug(f"VALIDATION CACHE: Word='{word}' (prompt_id={sentence_prompt_id}) previously submitted. Validity: {previous_submission.is_valid}, Creativity: {previous_submission.creativity_score}")
         return WordValidationResult(
             is_valid=previous_submission.is_valid,
@@ -106,6 +117,7 @@ Don't be too harsh, if the word is a reasonable response to the prompt, consider
     gemini_creativity_score = None
     gemini_reason = "Gemini call failed or produced unexpected output."
 
+    start_time = time.perf_counter()
     try:
         # Use dict for generation_config as it's simpler and supported
         generation_config = {
@@ -170,6 +182,10 @@ Don't be too harsh, if the word is a reasonable response to the prompt, consider
     except Exception as e:
         logger.exception(f"Error calling Gemini or processing response: {e}")
         gemini_reason = f"Gemini processing error: {e}"
+    finally:
+        end_time = time.perf_counter()
+        gemini_latency_ms = int((end_time - start_time) * 1000)
+        logger.info(f"Gemini API call took {gemini_latency_ms}ms")
 
     # As per instruction, the calling service will handle logging the submission.
     # This function returns the validation result.
@@ -178,4 +194,4 @@ Don't be too harsh, if the word is a reasonable response to the prompt, consider
         creativity_score=gemini_creativity_score, 
         from_cache=False,
         error_message=None if gemini_is_valid else gemini_reason
-    )
+    ), gemini_latency_ms

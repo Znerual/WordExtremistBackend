@@ -1,67 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Admin Dashboard</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; color: #333; }
-        .header { background-color: #333; color: #fff; padding: 20px; text-align: center; }
-        .container { max-width: 800px; margin: 30px auto; padding: 20px; background-color: #fff; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1 { margin-top: 0; }
-        ul { list-style-type: none; padding: 0; }
-        li { margin-bottom: 15px; }
-        a { text-decoration: none; color: #007bff; font-size: 1.1em; }
-        a:hover { text-decoration: underline; }
-        .section { border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
-        .section:last-child { border-bottom: none; }
-        .section h2 { margin-top: 0; color: #555; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Admin Dashboard</h1>
+{% extends "admin_base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<style>
+    .welcome-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    .welcome-grid .card { text-align: center; }
+    .welcome-grid .card h2 { font-size: 1.2rem; }
+    .welcome-grid .card p { color: #6c757d; min-height: 40px; }
+    .welcome-grid .card a { width: 100%; box-sizing: border-box; }
+</style>
+<div class="card">
+    <h1 class="page-title">Admin Dashboard</h1>
+</div>
+
+<div class="welcome-grid">
+    <div class="card">
+        <h2>Live Monitoring</h2>
+        <p>View real-time game stats, player activity, and system alerts.</p>
+        <a href="/admin/monitoring" class="btn btn-primary">Go to Monitoring</a>
     </div>
-
-    <div class="container">
-        <div class="section">
-            <h2>Game Content Management</h2>
-            <ul>
-                <li>
-                    <a href="/admin/add-sentence-prompt">Manage Sentence Prompts</a>
-                    <p style="font-size: 0.9em; color: #666;">Add, view, and manage sentence prompts used in the game.</p>
-                </li>
-            </ul>
-        </div>
-
-        <div class="section">
-            <h2>Game Data & Logs</h2>
-            <ul>
-                <li>
-                    <a href="/admin/game-logs">View Game Logs</a>
-                    <p style="font-size: 0.9em; color: #666;">Inspect recorded games, player scores, and individual word submissions. Includes options to edit logged data.</p>
-                </li>
-            </ul>
-        </div>
-
-        <div class="section">
-            <h2>User Management</h2>
-            <ul>
-                <li>
-                    <a href="/admin/users">Manage Users</a>
-                    <p style="font-size: 0.9em; color: #666;">View, add, edit, and delete user accounts.</p>
-                </li>
-            </ul>
-        </div>
-
-        <!-- Add more sections and links here as your admin panel grows -->
-        <!--
-        <div class="section">
-            <h2>User Management</h2>
-            <ul>
-                <li><a href="/admin/users">Manage Users</a> (Coming Soon)</li>
-            </ul>
-        </div>
-        -->
+    <div class="card">
+        <h2>User Management</h2>
+        <p>View, add, edit, and delete game users.</p>
+        <a href="/admin/users" class="btn btn-primary">Manage Users</a>
     </div>
-</body>
-</html>
+    <div class="card">
+        <h2>Game Content</h2>
+        <p>Add new sentence prompts for the game.</p>
+        <a href="/admin/sentence-prompts" class="btn btn-primary">Add Prompts</a>
+    </div>
+    <div class="card">
+        <h2>Game Logs</h2>
+        <p>Inspect records of past games and word submissions.</p>
+        <a href="/admin/game-logs" class="btn btn-primary">View Game Logs</a>
+    </div>
+</div>
+{% endblock %}

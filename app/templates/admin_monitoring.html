@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Game Monitoring Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f0f2f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header h1 { margin: 0; }
+        .header a { text-decoration: none; background-color: #6c757d; color: white; padding: 8px 15px; border-radius: 5px; font-size: 14px; }
+        .tabs { border-bottom: 1px solid #dee2e6; margin-bottom: 20px; }
+        .tabs button { background: none; border: none; padding: 15px 20px; cursor: pointer; font-size: 1rem; color: #6c757d; border-bottom: 3px solid transparent; }
+        .tabs button.active { color: #007bff; border-bottom-color: #007bff; font-weight: bold; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 20px; }
+        .card h2 { margin-top: 0; font-size: 1.2rem; color: #555; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+        .kpi-item .value { font-size: 2rem; font-weight: bold; color: #007bff; }
+        .kpi-item .label { font-size: 0.9rem; color: #666; }
+        .chart-container { position: relative; height: 300px; }
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table th, .data-table td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; font-size: 14px; }
+        .data-table th { background-color: #f8f9fa; }
+        .alert-level-CRITICAL, .alert-level-ERROR { color: #d9534f; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Game Monitoring</h1>
+            <a href="/admin/">Back to Admin Dashboard</a>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="openTab(event, 'Overview')">Overview</button>
+            <button class="tab-btn" onclick="openTab(event, 'PlayerBehavior')">Player Behavior</button>
+            <button class="tab-btn" onclick="openTab(event, 'GameHealth')">Game Health</button>
+            <button class="tab-btn" onclick="openTab(event, 'System')">System & Alerts</button>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="Overview" class="tab-content active">
+            <h2>Key Performance Indicators</h2>
+            <div class="kpi-grid card">
+                <div class="kpi-item">
+                    <div class="value" id="kpi-dau">--</div> <div class="label">Daily Active Users</div>
+                </div>
+                <div class="kpi-item">
+                    <div class="value" id="kpi-mau">--</div> <div class="label">Monthly Active Users</div>
+                </div>
+                <div class="kpi-item">
+                    <div class="value" id="kpi-abandon-rate">--%</div> <div class="label">Abandonment Rate</div>
+                </div>
+                <div class="kpi-item">
+                    <div class="value" id="kpi-error-rate">--%</div> <div class="label">API 5xx Error Rate</div>
+                </div>
+                <div class="kpi-item">
+                    <div class="value" id="kpi-gemini-latency">--ms</div> <div class="label">Avg. Gemini Latency</div>
+                </div>
+                 <div class="kpi-item">
+                    <div class="value" id="kpi-gemini-cache">--%</div> <div class="label">Gemini Cache Hits</div>
+                </div>
+            </div>
+            <div class="dashboard-grid" style="margin-top:20px">
+                <div class="card">
+                    <h2>Live Player Activity</h2>
+                    <div class="chart-container"><canvas id="playerActivityChart"></canvas></div>
+                </div>
+                 <div class="card">
+                    <h2>Frequent Errors (Top 10)</h2>
+                    <table class="data-table"><thead><tr><th>Count</th><th>Message</th></tr></thead><tbody id="frequent-errors-tbody"></tbody></table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Player Behavior Tab -->
+        <div id="PlayerBehavior" class="tab-content">
+             <div class="dashboard-grid">
+                <div class="card">
+                    <h2>Player Level Distribution</h2>
+                    <div class="chart-container"><canvas id="levelDistChart"></canvas></div>
+                </div>
+             </div>
+        </div>
+
+        <!-- Game Health Tab -->
+        <div id="GameHealth" class="tab-content">
+             <div class="dashboard-grid">
+                 <div class="card">
+                    <h2>Game Health Trends</h2>
+                    <div class="chart-container"><canvas id="gameHealthChart"></canvas></div>
+                </div>
+             </div>
+        </div>
+        
+        <!-- System Tab -->
+        <div id="System" class="tab-content">
+             <div class="dashboard-grid">
+                <div class="card">
+                    <h2>System Performance Trends</h2>
+                    <div class="chart-container"><canvas id="systemPerfChart"></canvas></div>
+                </div>
+                 <div class="card">
+                    <h2>All Recent System Alerts</h2>
+                    <div style="max-height: 400px; overflow-y: auto;">
+                        <table class="data-table"><thead><tr><th>Timestamp</th><th>Level</th><th>Message</th></tr></thead><tbody id="alerts-tbody"></tbody></table>
+                    </div>
+                </div>
+             </div>
+        </div>
+    </div>
+
+<script>
+    const charts = {};
+
+    function openTab(evt, tabName) {
+        document.querySelectorAll('.tab-content').forEach(tc => tc.style.display = "none");
+        document.querySelectorAll('.tab-btn').forEach(tb => tb.className = tb.className.replace(" active", ""));
+        document.getElementById(tabName).style.display = "block";
+        evt.currentTarget.className += " active";
+    }
+
+    function initChart(canvasId, type, datasetsConfig, extraOptions = {}) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        if (charts[canvasId]) { charts[canvasId].destroy(); }
+        charts[canvasId] = new Chart(ctx, {
+            type: type,
+            data: { datasets: datasetsConfig },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', tooltipFormat: 'MMM d, HH:mm' } },
+                    y: { beginAtZero: true }
+                },
+                ...extraOptions
+            }
+        });
+    }
+
+    async function fetchData() {
+        try {
+            const response = await fetch('/api/v1/monitoring/data');
+            if (response.status === 401 || response.status === 403) {
+                console.error("Authentication failed. Redirecting to login.");
+                // Redirect the user to the login page.
+                window.location.href = `/admin/login?next=${window.location.pathname}`;
+                return; // Stop further execution
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // KPIs
+            document.getElementById('kpi-dau').textContent = data.kpi_stats.dau;
+            document.getElementById('kpi-mau').textContent = data.kpi_stats.mau;
+            document.getElementById('kpi-abandon-rate').textContent = `${data.kpi_stats.abandonment_rate_percent}%`;
+            document.getElementById('kpi-error-rate').textContent = `${data.kpi_stats.api_error_rate_percent}%`;
+            document.getElementById('kpi-gemini-latency').textContent = `${data.kpi_stats.gemini_avg_latency_ms}ms`;
+            document.getElementById('kpi-gemini-cache').textContent = `${data.kpi_stats.gemini_cache_hit_rate_percent}%`;
+
+            // Tables
+            const updateTable = (tbodyId, items, rowGenerator) => {
+                const tbody = document.getElementById(tbodyId);
+                tbody.innerHTML = items.length ? items.map(rowGenerator).join('') : '<tr><td colspan="100%" style="text-align:center;">No data</td></tr>';
+            };
+            updateTable('frequent-errors-tbody', data.frequent_errors, e => `<tr><td>${e.count}</td><td>${e.message}</td></tr>`);
+            updateTable('alerts-tbody', data.alerts, a => `<tr><td>${new Date(a.timestamp).toLocaleString()}</td><td class="alert-level-${a.level}">${a.level}</td><td>${a.message}</td></tr>`);
+
+            // Charts
+            charts['playerActivityChart'].data.datasets[0].data = data.historical_stats.player_activity.map(p => ({ x: new Date(p.timestamp), y: p.matchmaking }));
+            charts['playerActivityChart'].data.datasets[1].data = data.historical_stats.player_activity.map(p => ({ x: new Date(p.timestamp), y: p.in_game }));
+            charts['playerActivityChart'].update();
+
+            charts['gameHealthChart'].data.datasets[0].data = data.historical_stats.game_health.map(p => ({ x: new Date(p.timestamp), y: p.avg_duration }));
+            charts['gameHealthChart'].data.datasets[1].data = data.historical_stats.game_health.map(p => ({ x: new Date(p.timestamp), y: p.p1_win_rate }));
+            charts['gameHealthChart'].update();
+            
+            charts['systemPerfChart'].data.datasets[0].data = data.historical_stats.system_performance.map(p => ({ x: new Date(p.timestamp), y: p.gemini_latency }));
+            charts['systemPerfChart'].data.datasets[1].data = data.historical_stats.system_performance.map(p => ({ x: new Date(p.timestamp), y: p.api_errors }));
+            charts['systemPerfChart'].update();
+            
+            charts['levelDistChart'].data.labels = data.level_distribution.map(d => `Level ${d.level}`);
+            charts['levelDistChart'].data.datasets[0].data = data.level_distribution.map(d => d.count);
+            charts['levelDistChart'].update();
+
+        } catch (error) {
+            console.error('Error fetching monitoring data:', error);
+        }
+    }
+    
+    document.addEventListener('DOMContentLoaded', async () => {
+        await fetchData();
+        
+        initChart('playerActivityChart', 'line', [{ label: 'In Matchmaking', borderColor: 'rgb(54, 162, 235)' }, { label: 'Players In-Game', borderColor: 'rgb(255, 99, 132)' }]);
+        initChart('gameHealthChart', 'line', [{ label: 'Avg. Duration (s)', borderColor: 'rgb(75, 192, 192)' }, { label: 'P1 Win Rate (%)', borderColor: 'rgb(255, 159, 64)' }]);
+        initChart('systemPerfChart', 'line', [{ label: 'Gemini Latency (ms)', borderColor: 'rgb(153, 102, 255)' }, { label: 'API 5xx Errors (%)', borderColor: 'rgb(255, 205, 86)' }]);
+        initChart('levelDistChart', 'bar', [{ label: 'Player Count', backgroundColor: 'rgba(75, 192, 192, 0.5)' }], { scales: { x: { type: 'category' } } });
+        
+        setInterval(fetchData, 30000);
+    });
+</script>
+</body>
+</html>

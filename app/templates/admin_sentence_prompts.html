@@ -1,0 +1,91 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Manage Prompts{% endblock %}
+
+{% block head_extra %}
+<script>
+    function confirmDelete(promptId) {
+        if (confirm(`Are you sure you want to delete prompt ID ${promptId}? This may fail if it's in use.`)) {
+            document.getElementById('delete-form-' + promptId).submit();
+        }
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1 class="page-title">Add New Sentence Prompt</h1>
+    <form action="/admin/sentence-prompts/add" method="post">
+        <div class="form-group">
+            <label for="sentence_text">Full Sentence:</label>
+            <textarea id="sentence_text" name="sentence_text" required rows="3"></textarea>
+        </div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="target_word">Word to Replace:</label>
+                <input type="text" id="target_word" name="target_word" required>
+            </div>
+            <div class="form-group">
+                <label for="prompt_text">Prompt Text:</label>
+                <input type="text" id="prompt_text" name="prompt_text" required>
+            </div>
+            <div class="form-group">
+                <label for="difficulty">Difficulty (1-5):</label>
+                <input type="number" id="difficulty" name="difficulty" min="1" max="5" value="1">
+            </div>
+             <div class="form-group">
+                <label for="language">Language:</label>
+                <input type="text" id="language" name="language" value="en" required>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Add Prompt</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1 class="page-title">Existing Prompts (Total: {{ total_prompts }})</h1>
+        <form method="get" action="/admin/sentence-prompts" style="display: flex; gap: 10px;">
+            <input type="search" name="search" placeholder="Search prompts..." value="{{ search }}" class="form-group">
+            <button type="submit" class="btn btn-secondary">Search</button>
+        </form>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr><th>ID</th><th>Sentence</th><th>Target</th><th>Prompt</th><th>Diff</th><th>Lang</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                {% for prompt in prompts %}
+                <tr>
+                    <td>{{ prompt.id }}</td>
+                    <td style="white-space: normal; min-width: 300px;">{{ prompt.sentence_text }}</td>
+                    <td>{{ prompt.target_word }}</td>
+                    <td>{{ prompt.prompt_text }}</td>
+                    <td>{{ prompt.difficulty }}</td>
+                    <td>{{ prompt.language }}</td>
+                    <td class="action-links">
+                        <a href="/admin/sentence-prompts/{{ prompt.id }}/edit" class="edit">Edit</a>
+                        <form id="delete-form-{{ prompt.id }}" method="post" action="/admin/sentence-prompts/{{ prompt.id }}/delete" style="display:inline;">
+                            <button type="button" class="delete" onclick="confirmDelete({{ prompt.id }})">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" style="text-align:center;">No prompts found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pagination">
+        {% set search_q = '&search=' + search if search else '' %}
+        {% if page > 1 %}<a href="?page={{ page - 1 }}{{ search_q }}">Previous</a>{% endif %}
+        <span class="current">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}<a href="?page={{ page + 1 }}{{ search_q }}">Next</a>{% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,10 +1,13 @@
 # app/crud/crud_user.py
 import logging
 from typing import Any, Dict
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+from app.schemas.system import DailyActiveUser
 from app.schemas.user import User
 from app.models.user import UserCreateFromGoogle, UserCreateFromPGS, GetOrCreateUserRequest  # Use this Pydantic model
 from app.core.config import settings
+from datetime import date
 
 logger = logging.getLogger("app.crud.user")  # Logger for this module
 
@@ -231,3 +234,23 @@ def increment_user_words_count(db: Session, user_id: int, count: int = 1) -> Use
         logger.debug(f"User {user_id} ({user.username}) words_count incremented to {user.words_count}")
         return user
     return None
+
+def log_daily_active_user(db: Session, user_id: int):
+    """
+    Logs a user's activity for the current day.
+    Uses a raw SQL INSERT with ON CONFLICT DO NOTHING for high performance
+    and to avoid race conditions or duplicate entries.
+    """
+    today = date.today()
+    try:
+        # This is more efficient than a SELECT then INSERT
+        stmt = text("""
+            INSERT INTO dailyactiveusers (user_id, activity_date)
+            VALUES (:user_id, :activity_date)
+            ON CONFLICT (user_id, activity_date) DO NOTHING;
+        """)
+        db.execute(stmt, {"user_id": user_id, "activity_date": today})
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to log daily active user {user_id}: {e}")
+        db.rollback()

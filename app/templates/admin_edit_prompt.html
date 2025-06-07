@@ -1,0 +1,38 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Edit Prompt {{ prompt.id }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1 class="page-title">Edit Prompt ID: {{ prompt.id }}</h1>
+
+    <form method="post" action="/admin/sentence-prompts/{{ prompt.id }}/edit">
+        <div class="form-group">
+            <label for="sentence_text">Full Sentence:</label>
+            <textarea id="sentence_text" name="sentence_text" required rows="3">{{ prompt.sentence_text }}</textarea>
+        </div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="target_word">Word to Replace:</label>
+                <input type="text" id="target_word" name="target_word" value="{{ prompt.target_word }}" required>
+            </div>
+            <div class="form-group">
+                <label for="prompt_text">Prompt Text:</label>
+                <input type="text" id="prompt_text" name="prompt_text" value="{{ prompt.prompt_text }}" required>
+            </div>
+            <div class="form-group">
+                <label for="difficulty">Difficulty (1-5):</label>
+                <input type="number" id="difficulty" name="difficulty" min="1" max="5" value="{{ prompt.difficulty }}">
+            </div>
+             <div class="form-group">
+                <label for="language">Language:</label>
+                <input type="text" id="language" name="language" value="{{ prompt.language }}" required>
+            </div>
+        </div>
+        <div class="form-actions">
+            <a href="/admin/sentence-prompts" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

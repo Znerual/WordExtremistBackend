@@ -1,7 +1,7 @@
 # app/api/deps.py
 import logging
 from typing import Optional
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
@@ -118,6 +118,7 @@ async def get_current_user_from_backend_jwt( # Renamed for clarity
 get_current_active_user = get_current_user_from_backend_jwt
 
 async def get_current_admin_user(
+    request: Request,
     token: Optional[str] = Cookie(None, alias=ACCESS_TOKEN_COOKIE_NAME),
     db: Session = Depends(get_db)
 ) -> UserPublic:
@@ -125,13 +126,25 @@ async def get_current_admin_user(
     Dependency to get the current admin user from a cookie.
     Raises HTTPException if the user is not an authenticated admin.
     """
-    # This exception will be raised if the cookie is missing, invalid,
-    # or the user is not an active superuser.
-    credentials_exception = HTTPException(
+    login_url_with_next = f"/admin/login?next={request.url.path}"
+    # Exception for browser clients to trigger a redirect
+    redirect_exception = HTTPException(
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
-        detail="Not authenticated or not an admin.",
-        headers={"Location": "/admin/login"},
+        headers={"Location": login_url_with_next},
     )
+    # Exception for API clients (e.g., JavaScript fetch)
+    api_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated or not an admin.",
+    )
+
+
+    # Determine which exception to use based on the 'Accept' header
+    accept_header = request.headers.get("accept", "")
+    is_browser_request = "text/html" in accept_header
+
+    credentials_exception = redirect_exception if is_browser_request else api_exception
+
     if token is None:
         raise credentials_exception
 

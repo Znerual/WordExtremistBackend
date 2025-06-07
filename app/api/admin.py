@@ -21,6 +21,10 @@ from fastapi import HTTPException # Added HTTPException
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+protected_router = APIRouter(
+    dependencies=[Depends(deps.get_current_admin_user)],
+    tags=["Admin"]
+)
 
 # Configure templates
 # Assuming your 'templates' directory is at 'app/templates'
@@ -30,14 +34,67 @@ templates = Jinja2Templates(directory="app/templates")
 ITEMS_PER_PAGE = 15
 ADMIN_USERS_PER_PAGE = 20
 
-@router.get("/", response_class=HTMLResponse, tags=["Admin"])
+# --- UNPROTECTED AUTH ROUTES ---
+
+@router.get("/login", response_class=HTMLResponse, tags=["Admin Auth"])
+async def admin_login_page(request: Request):
+    """Serves the admin login page."""
+    return templates.TemplateResponse("admin_login.html", {
+        "request": request,
+        "message": request.query_params.get("message")
+    })
+
+@router.post("/login", response_class=RedirectResponse, include_in_schema=False)
+async def handle_admin_login(
+    request: Request,
+    db: Session = Depends(deps.get_db),
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    """Handles admin login form submission, sets cookie, and redirects."""
+    user = crud_user.get_user_by_email(db, email=username)
+    if not user or not user.is_superuser or not user.hashed_password or not security.verify_password(password, user.hashed_password):
+        # IMPORTANT: Use a generic error message to prevent leaking info
+        # about whether an email exists or not.
+        error_msg = "Incorrect email or password."
+        return RedirectResponse(url=f"/admin/login?message={error_msg}", status_code=303)
+
+    # Create token and set it in a secure, HTTP-only cookie
+    access_token_expires = datetime.timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security.create_access_token(
+        data={"sub": str(user.id)}, expires_delta=access_token_expires
+    )
+    
+    redirect_url = request.query_params.get("next", "/admin/")
+    response = RedirectResponse(url=redirect_url, status_code=303)
+    response.set_cookie(
+        key=deps.ACCESS_TOKEN_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        # secure=True, # In production with HTTPS, set this to True
+    )
+    return response
+
+@router.get("/logout", response_class=RedirectResponse, tags=["Admin Auth"])
+async def handle_admin_logout():
+    """Logs the admin out by clearing the auth cookie."""
+    response = RedirectResponse(url="/admin/login", status_code=303)
+    response.delete_cookie(key=deps.ACCESS_TOKEN_COOKIE_NAME)
+    return response
+
+
+# --- PROTECTED ADMIN ROUTES ---
+
+
+@protected_router.get("/", response_class=HTMLResponse, tags=["Admin"])
 async def admin_dashboard(request: Request):
     """
     Serves the main admin dashboard page with links to various admin sections.
     """
     return templates.TemplateResponse("admin_index.html", {"request": request})
 
-@router.get("/users", response_class=HTMLResponse, tags=["Admin User Management"])
+@protected_router.get("/users", response_class=HTMLResponse, tags=["Admin User Management"])
 async def list_users_admin(
     request: Request,
     db: Session = Depends(deps.get_db),
@@ -59,11 +116,11 @@ async def list_users_admin(
         "success": request.query_params.get("success") == "true",
     })
 
-@router.get("/user/add", response_class=HTMLResponse, tags=["Admin User Management"])
+@protected_router.get("/user/add", response_class=HTMLResponse, tags=["Admin User Management"])
 async def show_add_user_form_admin(request: Request):
     return templates.TemplateResponse("admin_user_form.html", {"request": request, "user": None})
 
-@router.post("/user/add", response_class=RedirectResponse, tags=["Admin User Management"])
+@protected_router.post("/user/add", response_class=RedirectResponse, tags=["Admin User Management"])
 async def handle_add_user_admin(
     db: Session = Depends(deps.get_db),
     username: Optional[str] = Form(None),
@@ -112,7 +169,7 @@ async def handle_add_user_admin(
         return RedirectResponse(url=f"/admin/user/add?message={message}&success=false", status_code=303)
 
 
-@router.get("/user/{user_id}/edit", response_class=HTMLResponse, tags=["Admin User Management"])
+@protected_router.get("/user/{user_id}/edit", response_class=HTMLResponse, tags=["Admin User Management"])
 async def show_edit_user_form_admin(request: Request, user_id: int, db: Session = Depends(deps.get_db)):
     db_user = crud_user.get_user(db, user_id=user_id)
     if not db_user:
@@ -126,7 +183,7 @@ async def show_edit_user_form_admin(request: Request, user_id: int, db: Session 
         "success": request.query_params.get("success") == "true",
     })
 
-@router.post("/user/{user_id}/edit", response_class=RedirectResponse, tags=["Admin User Management"])
+@protected_router.post("/user/{user_id}/edit", response_class=RedirectResponse, tags=["Admin User Management"])
 async def handle_edit_user_admin(
     user_id: int,
     db: Session = Depends(deps.get_db),
@@ -176,7 +233,7 @@ async def handle_edit_user_admin(
         return RedirectResponse(url=f"/admin/user/{user_id}/edit?message={message}&success=false", status_code=303)
 
 
-@router.post("/user/{user_id}/delete", response_class=RedirectResponse, tags=["Admin User Management"])
+@protected_router.post("/user/{user_id}/delete", response_class=RedirectResponse, tags=["Admin User Management"])
 async def handle_delete_user_admin(user_id: int, db: Session = Depends(deps.get_db)):
     db_user = crud_user.get_user(db, user_id=user_id)
     if not db_user:
@@ -192,7 +249,7 @@ async def handle_delete_user_admin(user_id: int, db: Session = Depends(deps.get_
         message = f"Error deleting user: {e}. Check for related records (games, submissions)."
         return RedirectResponse(url=f"/admin/users?message={message}&success=false", status_code=303)
 
-@router.get("/add-sentence-prompt", response_class=HTMLResponse, tags=["Admin"])
+@protected_router.get("/add-sentence-prompt", response_class=HTMLResponse, tags=["Admin"])
 async def show_add_sentence_prompt_form(
     request: Request,
     db: Session = Depends(deps.get_db),
@@ -221,7 +278,7 @@ async def show_add_sentence_prompt_form(
         "success": success
     })
 
-@router.post("/add-sentence-prompt", tags=["Admin"])
+@protected_router.post("/add-sentence-prompt", tags=["Admin"])
 async def handle_add_sentence_prompt(
     request: Request, # Keep request for potential future use
     db: Session = Depends(deps.get_db),
@@ -282,7 +339,7 @@ async def handle_add_sentence_prompt(
         )
 
 # New API Route for creating sentence prompts
-@router.post("/api/v1/sentence-prompts/", response_model=SentencePromptPublic, tags=["Game Content"])
+@protected_router.post("/api/v1/sentence-prompts/", response_model=SentencePromptPublic, tags=["Game Content"])
 async def api_create_sentence_prompt(
     sentence_prompt_data: SentencePromptPublic, # Changed type here
     db: Session = Depends(deps.get_db)
@@ -313,7 +370,7 @@ async def api_create_sentence_prompt(
     # No need to call .model_validate here if response_model is set correctly.
     return created_prompt_db
 
-@router.get("/game-logs", response_class=HTMLResponse, tags=["Admin Game Logs"])
+@protected_router.get("/game-logs", response_class=HTMLResponse, tags=["Admin Game Logs"])
 async def show_game_logs(
     request: Request,
     db: Session = Depends(deps.get_db),
@@ -365,14 +422,14 @@ async def show_game_logs(
         "success": request.query_params.get("success") == "true",
     })
 
-@router.get("/game/{game_db_id}/submissions", response_class=HTMLResponse, tags=["Admin Game Logs"])
+@protected_router.get("/game/{game_db_id}/submissions", response_class=HTMLResponse, tags=["Admin Game Logs"])
 async def show_submissions_for_game(request: Request, game_db_id: int, db: Session = Depends(deps.get_db)):
     """Redirects to game-logs page, filtering submissions for the given game."""
     # This just makes a cleaner URL that redirects to the main logs page with a filter
     return RedirectResponse(url=f"/admin/game-logs?game_id_filter={game_db_id}", status_code=302)
 
 
-@router.get("/game/{game_db_id}/edit", response_class=HTMLResponse, tags=["Admin Game Logs"])
+@protected_router.get("/game/{game_db_id}/edit", response_class=HTMLResponse, tags=["Admin Game Logs"])
 async def show_edit_game_form(
     request: Request,
     game_db_id: int,
@@ -389,7 +446,7 @@ async def show_edit_game_form(
         "success": request.query_params.get("success") == "true",
     })
 
-@router.post("/game/{game_db_id}/edit", tags=["Admin Game Logs"])
+@protected_router.post("/game/{game_db_id}/edit", tags=["Admin Game Logs"])
 async def handle_edit_game(
     request: Request, # To get all form data dynamically for scores
     game_db_id: int,
@@ -439,7 +496,7 @@ async def handle_edit_game(
             status_code=303
         )
 
-@router.get("/submission/{submission_id}/edit", response_class=HTMLResponse, tags=["Admin Game Logs"])
+@protected_router.get("/submission/{submission_id}/edit", response_class=HTMLResponse, tags=["Admin Game Logs"])
 async def show_edit_submission_form(
     request: Request,
     submission_id: int,
@@ -456,7 +513,7 @@ async def show_edit_submission_form(
         "success": request.query_params.get("success") == "true",
     })
 
-@router.post("/submission/{submission_id}/edit", tags=["Admin Game Logs"])
+@protected_router.post("/submission/{submission_id}/edit", tags=["Admin Game Logs"])
 async def handle_edit_submission(
     submission_id: int,
     db: Session = Depends(deps.get_db),

@@ -1,17 +1,21 @@
 # app/api/deps.py
 import logging
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer # We still use this for the "Bearer" scheme
+from typing import Optional
+from fastapi import Cookie, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core import security
 from app.db.session import SessionLocal
-from app.core.security import verify_google_id_token # Use this
+from app.core.security import verify_google_id_token
 from app.models.user import UserPublic
-from app.crud import crud_user, crud_user as user_crud # Alias for clarity
+from app.crud import crud_user, crud_user as user_crud
 from app.core.config import settings
 
-logger = logging.getLogger("app.api.deps")  # Logger for this module
+logger = logging.getLogger("app.api.deps") 
+
+ACCESS_TOKEN_COOKIE_NAME = "word_extremist_admin_token"
 
 def get_db():
     db = SessionLocal()
@@ -112,3 +116,38 @@ async def get_current_user_from_backend_jwt( # Renamed for clarity
 
 
 get_current_active_user = get_current_user_from_backend_jwt
+
+async def get_current_admin_user(
+    token: Optional[str] = Cookie(None, alias=ACCESS_TOKEN_COOKIE_NAME),
+    db: Session = Depends(get_db)
+) -> UserPublic:
+    """
+    Dependency to get the current admin user from a cookie.
+    Raises HTTPException if the user is not an authenticated admin.
+    """
+    # This exception will be raised if the cookie is missing, invalid,
+    # or the user is not an active superuser.
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail="Not authenticated or not an admin.",
+        headers={"Location": "/admin/login"},
+    )
+    if token is None:
+        raise credentials_exception
+
+    try:
+        payload = await security.verify_backend_token(token)
+        user_id_str: str | None = payload.get("sub")
+        if user_id_str is None:
+            raise credentials_exception
+
+        user_db_id = int(user_id_str)
+        user = user_crud.get_user(db, user_id=user_db_id)
+        
+        if user is None or not user.is_active or not user.is_superuser:
+            raise credentials_exception
+
+        return UserPublic.model_validate(user)
+    except (JWTError, ValueError):
+        # If token is invalid, also redirect to login
+        raise credentials_exception

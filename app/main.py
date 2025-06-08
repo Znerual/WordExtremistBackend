@@ -236,6 +236,7 @@ create_tables()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _monitoring_task
+    global _matchmaking_bot_task
     
     # Code to execute during application startup
     logger.info("Application startup sequence initiated...")
@@ -285,7 +286,7 @@ async def lifespan(app: FastAPI):
             await _matchmaking_bot_task
         except asyncio.CancelledError:
             logger.info("Matchmaking bot check task successfully cancelled.")
-            
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",

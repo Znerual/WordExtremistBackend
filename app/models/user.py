@@ -28,6 +28,7 @@ class UserInDBBase(UserBase):
     client_provided_id: Optional[str] = None # Add if missing, make Optional if not always present
     is_active: bool
     is_superuser: bool = False # Default to False, set to True for admin users
+    is_bot: bool = False # Default to False, set to True for bot accounts
     created_at: datetime
     last_login_at: datetime | None = None
 

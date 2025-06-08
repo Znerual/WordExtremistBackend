@@ -3,13 +3,18 @@ import logging
 from typing import Dict, List, Optional, Tuple, Set, Any
 from app.models.game import GameState, GameStatePlayer
 from app.models.user import UserPublic
+import random
 import uuid
 import time
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.crud import crud_user
 
 logger = logging.getLogger("app.services.matchmaking_service")  # Logger for this module
 
 # In-memory stores for simplicity. For production, use Redis or a DB.
-waiting_players_by_lang: Dict[str, List[UserPublic]] = {}
+waiting_players_by_lang: Dict[str, List[Tuple[UserPublic, float]]] = {}
 active_games: Dict[str, GameState] = {} # game_id -> game_state_object (e.g., GameState Pydantic model)
 
 DEFAULT_GAME_LANGUAGE = "en"
@@ -17,7 +22,7 @@ DEFAULT_GAME_LANGUAGE = "en"
 def is_player_waiting(user_id: int) -> bool:
     """Checks if a player with the given ID is in the waiting pool."""
     for lang_pool in waiting_players_by_lang.values():
-        if any(player.id == user_id for player in lang_pool):
+        if any(player.id == user_id for player, timestamp in lang_pool):
             return True
     return False
 
@@ -32,7 +37,7 @@ def add_player_to_matchmaking_pool(player: UserPublic, requested_language: str |
         logger.error(f"Player '{player.username}' (ID: {player.id}) is already in a matchmaking pool. Not adding again.")
         return
     
-    waiting_players_by_lang[lang_key].append(player)
+    waiting_players_by_lang[lang_key].append((player, time.time()))  # Store player with current timestamp for potential timeout handling
     logger.info(f"Player '{player.username}' (ID: {player.id}) added to '{lang_key}' waiting pool. Pool size for '{lang_key}': {len(waiting_players_by_lang[lang_key])}")
 
 
@@ -42,7 +47,7 @@ def remove_player_from_matchmaking_pool(user_id: int):
     removed = False
     for lang_key in list(waiting_players_by_lang.keys()): # Iterate over keys copy
         initial_len = len(waiting_players_by_lang[lang_key])
-        waiting_players_by_lang[lang_key] = [p for p in waiting_players_by_lang[lang_key] if p.id != user_id]
+        waiting_players_by_lang[lang_key] = [(p, t) for p, t in waiting_players_by_lang[lang_key] if p.id != user_id]
         if len(waiting_players_by_lang[lang_key]) < initial_len:
             removed = True
             logger.info(f"Player ID {user_id} removed from '{lang_key}' waiting pool.")
@@ -61,8 +66,11 @@ def try_match_players() -> Tuple[str, UserPublic, UserPublic, str] | None:
     """
     for lang_key, lang_pool in waiting_players_by_lang.items():
         if len(lang_pool) >= 2:
-            player1 = lang_pool.pop(0)
-            player2 = lang_pool.pop(0)
+            player1_tuple = lang_pool.pop(0)
+            player2_tuple = lang_pool.pop(0)
+            player1, _ = player1_tuple # Unpack tuple
+            player2, _ = player2_tuple # Unpack tuple
+
             game_id = f"game_{uuid.uuid4().hex[:12]}" # Shorter UUID for readability
 
             p1_gs_player = GameStatePlayer(
@@ -90,6 +98,50 @@ def try_match_players() -> Tuple[str, UserPublic, UserPublic, str] | None:
                 del waiting_players_by_lang[lang_key]
             return game_id, player1, player2, lang_key
     return None
+
+def create_bot_match(player: UserPublic, lang: str, db: Session) -> Tuple[str, UserPublic]:
+    """
+    Creates a new game state by matching a human player with a bot.
+    Returns the game_id and the customized bot UserPublic object.
+    """
+    logger.info(f"Creating bot match for player {player.username} in language '{lang}'.")
+    
+    # 1. Get the bot user template from the DB
+    bot_user_template = crud_user.get_or_create_bot_user(db)
+    
+    # 2. Customize the bot for this specific game with a random name
+    bot_names = settings.BOT_USERNAMES.get(lang, settings.BOT_USERNAMES.get("en", ["Bot"]))
+    bot_game_user = UserPublic.model_validate(bot_user_template)
+    bot_game_user.username = random.choice(bot_names)
+    
+    # 3. Create the GameState object
+    game_id = f"game_{uuid.uuid4().hex[:12]}"
+    
+    human_gs_player = GameStatePlayer(
+        id=player.id, name=player.username or f"Player {player.id}",
+        is_bot=False, score=0
+    )
+    bot_gs_player = GameStatePlayer(
+        id=bot_game_user.id, name=bot_game_user.username,
+        is_bot=True, score=0
+    )
+    
+    # Randomize who goes first
+    players_in_order = random.sample([player.id, bot_game_user.id], 2)
+    
+    active_games[game_id] = GameState(
+        game_id=game_id,
+        language=lang,
+        players={player.id: human_gs_player, bot_game_user.id: bot_gs_player},
+        status="matched",
+        last_action_timestamp=time.time(),
+        matchmaking_player_order=players_in_order
+    )
+    
+    logger.info(f"Created bot match {game_id} for '{player.username}' vs '{bot_game_user.username}' (P1: {players_in_order[0]})")
+    
+    return game_id, bot_game_user
+
 
 
 def get_game_info(game_id: str) -> Optional[GameState]:

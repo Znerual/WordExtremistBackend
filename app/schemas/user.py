@@ -16,6 +16,7 @@ class User(Base):
     profile_pic_url = Column(String, nullable=True) # From PGS if available
     is_active = Column(Boolean(), default=True)
     is_superuser = Column(Boolean(), default=False, nullable=False)
+    is_bot = Column(Boolean(), default=False, nullable=False, server_default='false')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_login_at = Column(DateTime(timezone=True), onupdate=func.now(), default=func.now())
     hashed_password = Column(String, nullable=True) # Store the hash of the client-generated password

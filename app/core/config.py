@@ -1,6 +1,7 @@
 # app/core/config.py
 import pathlib
 import logging
+from typing import Dict, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -39,6 +40,23 @@ class Settings(BaseSettings):
     XP_FOR_GAME_WIN_BY_FORFEIT: int = 10
     # Please set your Gemini API Key in the .env file
     GEMINI_API_KEY: str = "YOUR_GEMINI_API_KEY_HERE" # Added this line
+    MATCHMAKING_BOT_THRESHOLD_SECONDS: int = 15
+    BOT_USERNAMES: Dict[str, List[str]] = {
+        "en": ["RoboPlayer", "WordBot", "SyntaxSlayer", "VerbViper", "Lexi-CON", "AI-Opponent"],
+        "es": ["PalabraBot", "Jugador-IA", "SintaxSlayer", "VerboVíbora", "Lexi-CON", "Oponente-IA"]
+    }
+
+    # --- Constants for Probability Scaling ---
+    # For a level 1 player, bot has a 20% chance to make a mistake
+    MAX_MISTAKE_PROBABILITY = 0.20
+    # For a level 30+ player, bot has a 3% chance to make a mistake
+    MIN_MISTAKE_PROBABILITY = 0.03
+    # For a level 1 player, bot has a 10% chance to "time out"
+    MAX_TIMEOUT_PROBABILITY = 0.10
+    # For a level 30+ player, bot has a 1% chance to "time out"
+    MIN_TIMEOUT_PROBABILITY = 0.01
+    # The level at which the bot reaches its minimum probability for errors
+    LEVEL_CAP_FOR_SCALING = 30
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

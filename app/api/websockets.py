@@ -1,12 +1,14 @@
 	  
 # app/api/websockets.py
 import logging
+import random
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, status, Query
 from starlette.websockets import WebSocketState
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional
 from app.api import deps
-from app.services import matchmaking_service, game_service
+from app.db.session import SessionLocal
+from app.services import matchmaking_service, game_service, bot_service
 from app.models.game import GameState
 import asyncio
 
@@ -82,6 +84,70 @@ class GameConnectionManager:
 			# No need to broadcast player_disconnected here, as handle_player_disconnect will do it via game_service
 
 game_manager = GameConnectionManager()
+
+async def handle_bot_turn(game_id: str, bot_player_id: int):
+	"""
+	Handles the logic for a bot's turn, including dynamic delay.
+	This function is called as a background task.
+	"""
+	
+	db = SessionLocal()
+	try:
+		# Fetch the latest state to ensure the game is still valid for a bot move
+		gs = matchmaking_service.get_full_game_state(game_id)
+		if not gs or gs.status != "in_progress" or gs.current_player_id != bot_player_id:
+			logger.info(f"Bot turn for G:{game_id} P:{bot_player_id} aborted. Game state changed or ended.")
+			return
+
+		# Get the bot's move from the bot service
+		bot_word, creativity_score = bot_service.get_bot_move(gs, db)
+
+		# --- "Delay" Phase: Simulate thinking time based on creativity ---
+		if bot_word:
+			# Base delay of 1s, plus up to 3s for max creativity, plus random jitter
+			delay = 1.0 + ((creativity_score - 1) * 0.75) + random.uniform(-0.5, 0.5)
+			delay = max(0.5, min(delay, 4.0)) # Clamp delay between 0.5s and 4.0s
+			logger.info(f"Bot (P:{bot_player_id}) will play '{bot_word}' (creativity: {creativity_score}) after a {delay:.2f}s delay.")
+			await asyncio.sleep(delay)
+		else:
+			# If bot "times out", make it happen after a longer, more realistic delay
+			logger.info(f"Bot (P:{bot_player_id}) is timing out. Waiting for a longer delay before processing.")
+			await asyncio.sleep(random.uniform(4.0, 6.0))
+
+		gs_after_delay = matchmaking_service.get_full_game_state(game_id)
+		if not gs_after_delay or gs_after_delay.status != "in_progress":
+			logger.info(f"Bot turn for G:{game_id} P:{bot_player_id} aborted after delay. Game ended.")
+			return
+		
+		action_type = "submit_word" if bot_word else "timeout"
+		payload = {"word": bot_word} if bot_word else {}
+		
+		updated_gs_after_bot, bot_events = game_service.process_player_game_action(
+			gs_after_delay,
+			bot_player_id,
+			action_type,
+			payload,
+			db
+		)
+		
+		matchmaking_service.update_game_state(game_id, updated_gs_after_bot)
+		
+		# Broadcast the events resulting from the bot's turn
+		for event in bot_events:
+			await game_manager._send_event(event, game_id)
+			
+		# --- RECURSIVE CHECK: Is it the bot's turn again? ---
+		# This can happen if the opponent makes a mistake and the turn passes back.
+		if updated_gs_after_bot.status == "in_progress":
+			next_player_id = updated_gs_after_bot.current_player_id
+			if next_player_id and updated_gs_after_bot.players[next_player_id].is_bot:
+				logger.info(f"Bot's turn again in G:{game_id}. Re-scheduling bot move for P:{next_player_id}.")
+				asyncio.create_task(handle_bot_turn(game_id, next_player_id))
+	except Exception as e:
+		logger.exception(f"Error during bot turn for G:{game_id} P:{bot_player_id}: {e}")
+	finally:
+		db.close()
+		
 
 @router.websocket("/ws/game/{game_id}")
 async def game_websocket_endpoint( # Renamed to avoid conflict with game_websocket var
@@ -173,6 +239,13 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 		if not current_game_state_model:
 			logger.error(f"G:{game_id} - State unavailable after initial events. Closing P:{player_id_of_this_connection}")
 			return
+		
+		# check if game starts with a bot's turn
+		if current_game_state_model.status == "in_progress":
+			current_player_id = current_game_state_model.current_player_id
+			if current_player_id and current_game_state_model.players[current_player_id].is_bot:
+				logger.info(f"G:{game_id} starts with a bot's turn (P:{current_player_id}). Scheduling move.")
+				asyncio.create_task(handle_bot_turn(game_id, current_player_id))
 
 		# Main loop for receiving player actions
 		while True:
@@ -240,6 +313,13 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 			
 			for event_item in resulting_events:
 				await game_manager._send_event(event_item, game_id)
+
+			# check whether next move is by a bot
+			if updated_game_state_model.status == "in_progress":
+				next_player_id = updated_game_state_model.current_player_id
+				if next_player_id and updated_game_state_model.players[next_player_id].is_bot:
+					logger.info(f"Turn passed to bot P:{next_player_id} in G:{game_id}. Scheduling move.")
+					asyncio.create_task(handle_bot_turn(game_id, next_player_id))
 			
 			if updated_game_state_model.status != "in_progress":
 				logger.info(f"G:{game_id} status changed to '{updated_game_state_model.status}'. P:{player_id_of_this_connection} WS loop might end.")

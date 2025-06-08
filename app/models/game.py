@@ -19,6 +19,7 @@ class GameStatePlayer(BaseModel):
     score: int = 0
     mistakes_in_current_round: int = 0
     words_played: List[str] = []
+    is_bot: bool = False # True if this player is a bot
 
 class GameState(BaseModel):
     game_id: str

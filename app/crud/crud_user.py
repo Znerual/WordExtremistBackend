@@ -1,6 +1,7 @@
 # app/crud/crud_user.py
 import logging
 from typing import Any, Dict
+import uuid
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.schemas.system import DailyActiveUser
@@ -254,3 +255,29 @@ def log_daily_active_user(db: Session, user_id: int):
     except Exception as e:
         logger.error(f"Failed to log daily active user {user_id}: {e}")
         db.rollback()
+
+def get_or_create_bot_user(db: Session) -> User:
+    """
+    Finds or creates a single, persistent user account for the bot.
+    The bot's display name will be randomized per-game, but the underlying user record is static.
+    """
+    # Use a consistent, unique identifier for the bot user record
+    bot_email = "bot@wordextremist.game"
+    bot_user = get_user_by_email(db, email=bot_email)
+    
+    if not bot_user:
+        logger.info(f"Bot user record not found, creating a new one.")
+        bot_user = User(
+            email=bot_email,
+            username="WordExtremist Bot", # Default name, will be overridden in-game
+            is_bot=True,
+            is_active=True,
+            # A bot doesn't need a real PGS ID, but the field should be unique if not nullable.
+            play_games_player_id=f"bot_user_id_{uuid.uuid4().hex[:12]}"
+        )
+        db.add(bot_user)
+        db.commit()
+        db.refresh(bot_user)
+        logger.info(f"Bot user record created with ID: {bot_user.id}")
+
+    return bot_user

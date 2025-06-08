@@ -48,15 +48,15 @@ class Settings(BaseSettings):
 
     # --- Constants for Probability Scaling ---
     # For a level 1 player, bot has a 20% chance to make a mistake
-    MAX_MISTAKE_PROBABILITY = 0.20
+    MAX_MISTAKE_PROBABILITY: float = 0.20
     # For a level 30+ player, bot has a 3% chance to make a mistake
-    MIN_MISTAKE_PROBABILITY = 0.03
+    MIN_MISTAKE_PROBABILITY: float = 0.03
     # For a level 1 player, bot has a 10% chance to "time out"
-    MAX_TIMEOUT_PROBABILITY = 0.10
+    MAX_TIMEOUT_PROBABILITY: float = 0.10
     # For a level 30+ player, bot has a 1% chance to "time out"
-    MIN_TIMEOUT_PROBABILITY = 0.01
+    MIN_TIMEOUT_PROBABILITY: float = 0.01
     # The level at which the bot reaches its minimum probability for errors
-    LEVEL_CAP_FOR_SCALING = 30
+    LEVEL_CAP_FOR_SCALING: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -1,5 +1,5 @@
 # app/schemas/user.py
-from sqlalchemy import Column, String, Integer, DateTime, Boolean
+from sqlalchemy import Column, Date, String, Integer, DateTime, Boolean
 from sqlalchemy.sql import func
 from app.db.base_class import Base
 
@@ -23,5 +23,11 @@ class User(Base):
     level = Column(Integer, default=1, nullable=False)
     experience = Column(Integer, default=0, nullable=False)
     words_count = Column(Integer, default=0, nullable=False) # Total words submitted by this user
+    country = Column(String(2), nullable=True, comment="ISO 3166-1 alpha-2 country code")
+    mother_tongue = Column(String(10), nullable=True, comment="BCP-47 language code (e.g., 'en', 'es-MX')")
+    preferred_language = Column(String(10), nullable=True, comment="BCP-47 language code (e.g., 'en', 'es-MX')")
+    birthday = Column(Date, nullable=True)
+    gender = Column(String(50), nullable=True)
+    language_level = Column(String(50), nullable=True, comment="e.g., A1, B2, native")
     # Store Google OAuth refresh token securely if you need long-term offline access to PGS APIs
     # google_refresh_token = Column(String, nullable=True)

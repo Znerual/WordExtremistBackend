@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.api import deps
 from app.core import security
-from app.models.user import DeviceLoginRequest, BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle
+from app.models.user import DeviceLoginRequest, BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle, UserOptionalInfoUpdate
 from app.models.game_log_display import UserWordVaultEntry
 from app.crud import crud_user, crud_game_log
 from app.core.security import get_password_hash, verify_password, create_access_token
@@ -285,5 +285,35 @@ async def update_current_user_profile(
     updated_user = crud_user.update_user_admin(db, user_id=user_id, user_update_data=update_data)
     if not updated_user:
         raise HTTPException(status_code=500, detail="Failed to update user in database.")
+
+    return updated_user
+
+@router.patch("/users/me/optional-info", response_model=UserPublic)
+async def update_user_optional_info(
+    update_data: UserOptionalInfoUpdate,
+    current_user: UserPublic = Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db),
+):
+    """
+    Update the current authenticated user's optional profile information
+    like country, language preferences, birthday, etc.
+    """
+    user_id = current_user.id
+    # Use model_dump with exclude_unset=True so we only update fields that the user actually sent.
+    update_data_dict = update_data.model_dump(exclude_unset=True)
+
+    if not update_data_dict:
+        # If the user sends an empty JSON object, we don't need to do anything.
+        db_user = crud_user.get_user(db, user_id=user_id)
+        if not db_user:
+            logger.error(f"User with ID {user_id} not found for optional info update.")
+            raise HTTPException(status_code=404, detail="User not found")
+        return db_user
+
+    # We can reuse the flexible 'update_user_admin' CRUD for this purpose.
+    updated_user = crud_user.update_user_admin(db, user_id=user_id, user_update_data=update_data_dict)
+    if not updated_user:
+        logger.error(f"Failed to update optional info for user ID {user_id}. Update data: {update_data_dict}")
+        raise HTTPException(status_code=500, detail="Failed to update user optional info.")
 
     return updated_user

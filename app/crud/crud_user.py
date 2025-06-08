@@ -132,8 +132,13 @@ def create_user_admin(db: Session, user_data: Dict[str, Any]) -> User:
     user_data.setdefault('words_count', int(user_data.get('words_count', 0)))
 
     # Convert empty strings for optional fields to None
-    for key in ['email', 'profile_pic_url', 'username', 
-                'client_provided_id', 'play_games_player_id', 'google_id']: # Add all relevant optional string fields
+    fields_to_clean = [
+        'email', 'profile_pic_url', 'username', 
+        'client_provided_id', 'play_games_player_id', 'google_id',
+        'country', 'mother_tongue', 'preferred_language', 'gender', 'language_level',
+        'birthday'
+    ]
+    for key in fields_to_clean:
         if key in user_data and user_data[key] == '':
             user_data[key] = None
 
@@ -165,10 +170,16 @@ def update_user_admin(db: Session, user_id: int, user_update_data: Dict[str, Any
             # Only update if the field exists on the model and value is provided
             # (or if you want to allow setting to None explicitly)
             if hasattr(db_user, key):
-                if value == '' and key in ['email', 'profile_pic_url', 'username', 
-                                            'client_provided_id', 'play_games_player_id', 'google_id']:
-                    setattr(db_user, key, None)
+                string_fields_to_nullify = [
+                    'email', 'profile_pic_url', 'username', 
+                    'client_provided_id', 'play_games_player_id', 'google_id',
+                    'country', 'mother_tongue', 'preferred_language', 'gender', 'language_level'
+                ]
 
+                if value == '' and key in string_fields_to_nullify:
+                    setattr(db_user, key, None)
+                elif value == '' and key == 'birthday': # Special case for date field
+                    setattr(db_user, key, None)
                 elif key in ['level', 'experience', 'words_count']:
                     try:
                         setattr(db_user, key, int(value) if value is not None else (1 if key == 'level' else 0) )

@@ -1,7 +1,7 @@
 # app/models/user.py
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
-from datetime import datetime
+from datetime import date, datetime
 
 class UserBase(BaseModel):
     email: EmailStr | None = None
@@ -10,6 +10,12 @@ class UserBase(BaseModel):
     level: int = Field(default=1)
     experience: int = Field(default=0)
     words_count: int = Field(default=0)
+    country: Optional[str] = Field(None, max_length=2, description="ISO 3166-1 alpha-2 country code")
+    mother_tongue: Optional[str] = Field(None, max_length=10, description="BCP-47 language code (e.g., 'en', 'es-MX')")
+    preferred_language: Optional[str] = Field(None, max_length=10, description="BCP-47 language code (e.g., 'en', 'es-MX')")
+    birthday: Optional[date] = None
+    gender: Optional[str] = Field(None, max_length=50)
+    language_level: Optional[str] = Field(None, max_length=50, description="e.g., A1, B2, native")
 
 class UserCreateFromPGS(UserBase):
     play_games_player_id: str
@@ -20,7 +26,16 @@ class UserCreateFromGoogle(UserBase): # Data extracted from Google ID Token
 
 class UserUpdate(BaseModel): # For user to update their editable profile info
     username: str | None = None
+    profile_pic_url: HttpUrl | None = None
     # other updatable fields
+
+class UserOptionalInfoUpdate(BaseModel):
+    country: Optional[str] = Field(None, max_length=2)
+    mother_tongue: Optional[str] = Field(None, max_length=10)
+    preferred_language: Optional[str] = Field(None, max_length=10)
+    birthday: Optional[date] = None
+    gender: Optional[str] = Field(None, max_length=50)
+    language_level: Optional[str] = Field(None, max_length=50)
 
 class UserInDBBase(UserBase):
     id: int # Your internal ID

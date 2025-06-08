@@ -67,7 +67,7 @@ def validate_word_against_prompt(
             is_valid=previous_submission.is_valid,
             creativity_score=previous_submission.creativity_score,
             from_cache=True
-        )
+        ), 0
 
     # 2. If not previously submitted, perform validation using Gemini
     logger.debug(f"VALIDATION GEMINI: Word='{word}' (prompt_id={sentence_prompt_id}) not previously submitted. Calling Gemini.")
@@ -75,7 +75,7 @@ def validate_word_against_prompt(
     if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
         logger.error("Error: GEMINI_API_KEY is not configured.")
         # Not logging submission here as per instruction (calling service will log)
-        return WordValidationResult(is_valid=False, creativity_score=None, error_message="Gemini API key not configured")
+        return WordValidationResult(is_valid=False, creativity_score=None, error_message="Gemini API key not configured"), -1
 
     try:
         genai.configure(api_key=settings.GEMINI_API_KEY)
@@ -84,7 +84,7 @@ def validate_word_against_prompt(
     except Exception as e:
         logger.exception(f"Error configuring Gemini client: {e}")
         # Not logging submission here
-        return WordValidationResult(is_valid=False, creativity_score=None, error_message=f"Gemini client configuration error: {e}")
+        return WordValidationResult(is_valid=False, creativity_score=None, error_message=f"Gemini client configuration error: {e}"), -1
 
     gemini_prompt_text = f"""
 You are a word game judge. The game content is in the language with code '{language}'. Given a sentence, a target word within that sentence,

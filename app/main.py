@@ -116,8 +116,24 @@ async def capture_monitoring_snapshot_task(interval_seconds: int = 3600):
             # --- CALCULATE ALL METRICS ---
             # Engagement
             new_users_q = db.query(User).filter(User.created_at >= today, User.is_bot == False).count()
-            dau_q = db.query(func.count(DailyActiveUser.user_id)).filter(DailyActiveUser.activity_date == today, User.is_bot == False).scalar()
-            mau_q = db.query(func.count(func.distinct(DailyActiveUser.user_id))).filter(DailyActiveUser.activity_date >= thirty_days_ago, User.is_bot == False).scalar()
+            dau_q = (
+                db.query(func.count(func.distinct(DailyActiveUser.user_id))) # Using distinct is more robust
+                .join(User, User.id == DailyActiveUser.user_id) # Explicitly join User table
+                .filter(
+                    DailyActiveUser.activity_date == today,
+                    User.is_bot == False
+                )
+                .scalar()
+            )
+            mau_q = (
+                db.query(func.count(func.distinct(DailyActiveUser.user_id)))
+                .join(User, User.id == DailyActiveUser.user_id) # Explicitly join User table
+                .filter(
+                    DailyActiveUser.activity_date >= thirty_days_ago,
+                    User.is_bot == False
+                )
+                .scalar()
+            )
             
             # Game Health
             games_finished_q = db.query(Game).filter(Game.status == 'finished').count()

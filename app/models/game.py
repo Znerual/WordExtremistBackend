@@ -38,7 +38,7 @@ class GameState(BaseModel):
     status: str = "starting"
     matchmaking_player_order: List[int] = []
     winner_user_id: int | None = None # The player_id of the winner, if any
-
+    turn_duration_seconds: int = Field(default=30, description="Duration of a player's turn in seconds.")
 
 class PlayerAction(BaseModel):
     action_type: str # "submit_word", "send_emoji"

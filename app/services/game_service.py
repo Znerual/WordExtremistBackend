@@ -14,8 +14,6 @@ from app.models.enums import RoundEndReason # For round end reasons
 
 logger = logging.getLogger("app.services.game_service")  # Logger for this module
 
-MAX_MISTAKES = 3
-GAME_MAX_ROUNDS = 3 # Example, can be configured
 
 # Define possible event types that game_service can return
 GameEventType = Literal[
@@ -108,10 +106,11 @@ def initialize_new_game_state(
     initial_game_state_from_matchmaking.sentence_prompt = initial_sentence_prompt # Store Pydantic model
     initial_game_state_from_matchmaking.current_player_id= initial_game_state_from_matchmaking.matchmaking_player_order[0] # P1 starts
     initial_game_state_from_matchmaking.current_round = 1
-    initial_game_state_from_matchmaking.max_rounds = GAME_MAX_ROUNDS # Set max rounds
+    initial_game_state_from_matchmaking.max_rounds = settings.GAME_MAX_ROUNDS # Set max rounds
     initial_game_state_from_matchmaking.last_action_timestamp = time.time() # Set initial timestamp
     initial_game_state_from_matchmaking.words_played_this_round_all = [] # Reset for new game
     initial_game_state_from_matchmaking.consecutive_timeouts = 0 # Reset timeout counter
+    initial_game_state_from_matchmaking.turn_duration_seconds = settings.DEFAULT_TURN_DURATION_SECONDS
 
     game_start_payload = {
         "game_id": game_id,
@@ -127,7 +126,8 @@ def initialize_new_game_state(
         "current_player_id": str(initial_game_state_from_matchmaking.current_player_id),
         "game_active": True,
         "max_rounds": initial_game_state_from_matchmaking.max_rounds,
-        "last_action_timestamp": initial_game_state_from_matchmaking.last_action_timestamp
+        "last_action_timestamp": initial_game_state_from_matchmaking.last_action_timestamp,
+        "turn_duration_seconds": initial_game_state_from_matchmaking.turn_duration_seconds,
     }
     events.append(GameEvent(event_type="game_started", payload=game_start_payload, broadcast=True))
     
@@ -156,7 +156,8 @@ def prepare_reconnect_state_payload(game_id: str, current_game_state: GameState,
         "current_player_id": str(current_game_state.current_player_id) if current_game_state.current_player_id else None,
         "game_active": current_game_state.status == "in_progress",
         "max_rounds": current_game_state.max_rounds,
-        "last_action_timestamp": current_game_state.last_action_timestamp
+        "last_action_timestamp": current_game_state.last_action_timestamp,
+        "turn_duration_seconds": current_game_state.turn_duration_seconds,
     }
     return GameEvent(event_type="game_state_reconnect", payload=reconnect_payload, target_player_id=target_player_id)
 
@@ -215,7 +216,8 @@ def _prepare_next_round(
         "word_to_replace": new_sentence_pydantic.target_word,
         "current_player_id": str(current_game_state.current_player_id),
         "game_active": True,
-        "last_action_timestamp": current_game_state.last_action_timestamp
+        "last_action_timestamp": current_game_state.last_action_timestamp,
+        "turn_duration_seconds": current_game_state.turn_duration_seconds,
     }
     events.append(GameEvent(event_type="new_round_started", payload=new_round_payload, broadcast=True))
     return current_game_state, events
@@ -287,8 +289,8 @@ def process_player_game_action(
             logger.warning(f"Player {acting_player_id} submitted a repeated word '{word}' in game {current_game_state.game_id}. Mistake count: {mistakes}")
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": "Word already played. Mistake!"}, target_player_id=acting_player_id))
             
-            if mistakes >= MAX_MISTAKES:
-                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.REPEATED_WORD_MAX_MISTAKES, db)
+            if mistakes >= settings.settings.MAX_MISTAKES:
+                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.REPEATED_WORD_settings.MAX_MISTAKES, db)
                 events.extend(round_game_over_events)
                 logger.info(f"Player {acting_player_id} reached max mistakes for repeated words in game {current_game_state.game_id}. Ending round.")
             # No 'else' needed to update matchmaking_service here; it's done after all processing for this action.
@@ -345,8 +347,8 @@ def process_player_game_action(
             events.append(GameEvent(event_type="validation_result", payload={"word": word, "is_valid": False, "message": validation_result.error_message or "Not valid. Mistake!", "creativity_score": validation_result.creativity_score}, target_player_id=acting_player_id))
             events.append(GameEvent(event_type="opponent_mistake", payload={"player_id": str(acting_player_id), "mistakes": mistakes}, target_player_id=other_player_id))
             logger.debug(f"Player {acting_player_id} submitted invalid word '{word}' in game {current_game_state.game_id}. Mistake count: {mistakes}")
-            if mistakes >= MAX_MISTAKES:
-                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.INVALID_WORD_MAX_MISTAKES, db)
+            if mistakes >= settings.MAX_MISTAKES:
+                current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.INVALID_WORD_settings.MAX_MISTAKES, db)
                 events.extend(round_game_over_events)
                 logger.info(f"Player {acting_player_id} reached max mistakes for invalid words in game {current_game_state.game_id}. Ending round.")
         return current_game_state, events
@@ -381,8 +383,8 @@ def process_player_game_action(
             events.extend(round_game_over_events)
             return current_game_state, events
         
-        if mistakes >= MAX_MISTAKES:
-            current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.TIMEOUT_MAX_MISTAKES, db) # Changed reason
+        if mistakes >= settings.MAX_MISTAKES:
+            current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.TIMEOUT_settings.MAX_MISTAKES, db) # Changed reason
             events.extend(round_game_over_events)
             logger.info(f"Player {acting_player_id} reached max mistakes for timeouts in game {current_game_state.game_id}. Ending round.")
         else:

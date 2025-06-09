@@ -17,12 +17,13 @@ logger = logging.getLogger("app.services.game_service")  # Logger for this modul
 
 # Define possible event types that game_service can return
 GameEventType = Literal[
-    "game_started",
+    "game_setup_ready", # Tell clients to prepare (animations, etc.)
+    "round_started", # Tell clients the round is now active and the timer is running
     "game_state_reconnect", # For sending full state on reconnect
     "new_round_started",
     "game_over",
     "opponent_turn_ended",
-    "opponent_timeout",
+    "timeout",
     "validation_result",
     "opponent_mistake", # If a mistake doesn't end turn but opponent should know
     "info_message_to_player",
@@ -102,7 +103,7 @@ def initialize_new_game_state(
         # events.append(error_event) # Add to events list if needed
 
     initial_game_state_from_matchmaking.db_game_id = db_game_id_for_logging # Store for logging later
-    initial_game_state_from_matchmaking.status = "in_progress" # Set initial status
+    initial_game_state_from_matchmaking.status = "waiting_for_ready" # Set initial status
     initial_game_state_from_matchmaking.sentence_prompt = initial_sentence_prompt # Store Pydantic model
     initial_game_state_from_matchmaking.current_player_id= initial_game_state_from_matchmaking.matchmaking_player_order[0] # P1 starts
     initial_game_state_from_matchmaking.current_round = 1
@@ -111,6 +112,7 @@ def initialize_new_game_state(
     initial_game_state_from_matchmaking.words_played_this_round_all = [] # Reset for new game
     initial_game_state_from_matchmaking.consecutive_timeouts = 0 # Reset timeout counter
     initial_game_state_from_matchmaking.turn_duration_seconds = settings.DEFAULT_TURN_DURATION_SECONDS
+    initial_game_state_from_matchmaking.ready_player_ids = []
 
     game_start_payload = {
         "game_id": game_id,
@@ -124,12 +126,13 @@ def initialize_new_game_state(
         "player1_state": initial_game_state_from_matchmaking.players[p1_id].model_dump(),
         "player2_state": initial_game_state_from_matchmaking.players[p2_id].model_dump(),
         "current_player_id": str(initial_game_state_from_matchmaking.current_player_id),
-        "game_active": True,
+        "game_active": False,
         "max_rounds": initial_game_state_from_matchmaking.max_rounds,
         "last_action_timestamp": initial_game_state_from_matchmaking.last_action_timestamp,
         "turn_duration_seconds": initial_game_state_from_matchmaking.turn_duration_seconds,
+        "game_status": "waiting_for_ready", # Send status to client
     }
-    events.append(GameEvent(event_type="game_started", payload=game_start_payload, broadcast=True))
+    events.append(GameEvent(event_type="game_setup_ready", payload=game_start_payload, broadcast=True))
     
     return initial_game_state_from_matchmaking, events
 
@@ -158,6 +161,7 @@ def prepare_reconnect_state_payload(game_id: str, current_game_state: GameState,
         "max_rounds": current_game_state.max_rounds,
         "last_action_timestamp": current_game_state.last_action_timestamp,
         "turn_duration_seconds": current_game_state.turn_duration_seconds,
+        "game_status": current_game_state.status, # Send status to client
     }
     return GameEvent(event_type="game_state_reconnect", payload=reconnect_payload, target_player_id=target_player_id)
 
@@ -198,8 +202,9 @@ def _prepare_next_round(
     current_game_state.words_played_this_round_all = []
 
     # Determine who starts next round (e.g., P1 starts odd, P2 starts even based on matchmaking order)
+    current_game_state.status = "waiting_for_ready"
     current_game_state.current_player_id = p1_id if current_game_state.current_round % 2 == 1 else p2_id
-    current_game_state.status = "in_progress"
+    current_game_state.ready_player_ids = []
     current_game_state.last_action_timestamp = time.time()
 
 
@@ -215,9 +220,10 @@ def _prepare_next_round(
         "prompt": new_sentence_pydantic.prompt_text,
         "word_to_replace": new_sentence_pydantic.target_word,
         "current_player_id": str(current_game_state.current_player_id),
-        "game_active": True,
+        "game_active": False,
         "last_action_timestamp": current_game_state.last_action_timestamp,
         "turn_duration_seconds": current_game_state.turn_duration_seconds,
+        "game_status": current_game_state.status, # Send status to client
     }
     events.append(GameEvent(event_type="new_round_started", payload=new_round_payload, broadcast=True))
     return current_game_state, events
@@ -246,7 +252,33 @@ def process_player_game_action(
     current_prompt_details = current_game_state.sentence_prompt # This is now a Pydantic model
     sentence_prompt_db_id = current_prompt_details.id if current_prompt_details else None
 
-    if action_type == "submit_word":
+    if action_type == "client_ready":
+        if acting_player_id not in current_game_state.ready_player_ids:
+            current_game_state.ready_player_ids.append(acting_player_id)
+            logger.info(f"Player {acting_player_id} is ready for G:{current_game_state.game_id}. Ready players: {len(current_game_state.ready_player_ids)}/{len(current_game_state.players)}")
+
+        # Check if all players are ready
+        if len(current_game_state.ready_player_ids) == len(current_game_state.players):
+            logger.info(f"All players ready for G:{current_game_state.game_id}. Starting round {current_game_state.current_round}.")
+            current_game_state.status = "in_progress"
+            
+            # Set the starting player for the round (P1 on odd rounds, P2 on even)
+            current_game_state.current_player_id = p1_id if current_game_state.current_round % 2 == 1 else p2_id
+            current_game_state.last_action_timestamp = time.time()
+
+            # Create an event to inform clients the round has officially started and the timer is running
+            round_started_payload = {
+                "game_id": current_game_state.game_id,
+                "round": current_game_state.current_round,
+                "current_player_id": str(current_game_state.current_player_id),
+                "last_action_timestamp": current_game_state.last_action_timestamp,
+                "turn_duration_seconds": current_game_state.turn_duration_seconds,
+            }
+            events.append(GameEvent("round_started", round_started_payload, broadcast=True))
+        
+        return current_game_state, events
+
+    elif action_type == "submit_word":
         if not is_acting_players_turn:
             logger.error(f"Player {acting_player_id} tried to submit word but it's not their turn. Game {current_game_state.game_id}. Ignoring.")
             events.append(GameEvent(event_type="error_message_to_player", payload={"message": "Not your turn."}, target_player_id=acting_player_id))
@@ -391,12 +423,11 @@ def process_player_game_action(
             next_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)
             current_game_state.current_player_id = next_player_id
             timeout_turn_change_payload = {
-                "opponent_player_id": str(acting_player_id), "current_player_id": str(next_player_id),
+                "player_id": str(acting_player_id), "current_player_id": str(next_player_id),
                 "game_id": current_game_state.game_id, "game_active": True,
                 "last_action_timestamp": current_game_state.last_action_timestamp
             }
-            events.append(GameEvent(event_type="opponent_timeout", payload=timeout_turn_change_payload, target_player_id=next_player_id))
-       
+            events.append(GameEvent(event_type="timeout", payload=timeout_turn_change_payload, broadcast=True))
         return current_game_state, events
 
     elif action_type == "send_emoji":

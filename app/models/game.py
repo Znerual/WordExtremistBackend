@@ -39,7 +39,8 @@ class GameState(BaseModel):
     matchmaking_player_order: List[int] = []
     winner_user_id: int | None = None # The player_id of the winner, if any
     turn_duration_seconds: int = Field(default=30, description="Duration of a player's turn in seconds.")
-
+    ready_player_ids: List[int] = Field(default_factory=list, description="List of player IDs who have signaled they are ready for the current round.")
+    
 class PlayerAction(BaseModel):
     action_type: str # "submit_word", "send_emoji"
     payload: Dict[str, Any] | None = None # e.g., {"word": "amazing"} or {"emoji": "THUMBS_UP"}

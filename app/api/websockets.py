@@ -15,6 +15,84 @@ import asyncio
 logger = logging.getLogger("app.api.websockets")  # Logger for this module
 router = APIRouter()
 
+# A module-level dictionary to keep track of active timer tasks for each game.
+# This avoids storing non-serializable asyncio.Task objects in the GameState.
+active_turn_timers: Dict[str, asyncio.Task] = {}
+
+async def _handle_timeout(game_id: str):
+    """
+    The coroutine that runs when a timer expires.
+    It gets its own database session to ensure it's valid.
+    """
+    db = SessionLocal()
+    try:
+        logger.info(f"G:{game_id} - Turn timer expired. Processing timeout.")
+        
+        gs = matchmaking_service.get_full_game_state(game_id)
+        if not gs or gs.status != "in_progress":
+            logger.warning(f"G:{game_id} - Timeout triggered but game not in progress. Aborting.")
+            return
+
+        player_who_timed_out = gs.current_player_id
+        if player_who_timed_out is None:
+            logger.error(f"G:{game_id} - Timeout triggered but current_player_id is None. Aborting.")
+            return
+
+        # Process the timeout action using the game service
+        updated_gs, timeout_events = game_service.process_player_game_action(
+            gs, player_who_timed_out, "timeout", {}, db
+        )
+        
+        matchmaking_service.update_game_state(game_id, updated_gs)
+        
+        # Broadcast the events that resulted from the timeout
+        for event in timeout_events:
+            await game_manager._send_event(event, game_id)
+            
+        # After processing, check if a new timer needs to be started
+        final_gs = matchmaking_service.get_full_game_state(game_id)
+        if final_gs.status == "in_progress":
+            next_player_id = final_gs.current_player_id
+            # Start a new timer if the next player is human
+            if next_player_id and not final_gs.players[next_player_id].is_bot:
+                _start_turn_timer(game_id, final_gs.turn_duration_seconds)
+            # Or schedule a bot move if it's the bot's turn
+            elif next_player_id and final_gs.players[next_player_id].is_bot:
+                 asyncio.create_task(handle_bot_turn(game_id, next_player_id))
+    except Exception as e:
+        logger.exception(f"Error in _handle_timeout for G:{game_id}: {e}")
+    finally:
+        if game_id in active_turn_timers: # Remove the completed/failed task
+            del active_turn_timers[game_id]
+        db.close() # Ensure DB session is closed
+
+
+def _start_turn_timer(game_id: str, duration: int):
+    """Starts a new timer task for a game turn and stores it."""
+    # First, cancel any existing timer for this game to be safe.
+    if game_id in active_turn_timers and not active_turn_timers[game_id].done():
+        logger.warning(f"G:{game_id} - Starting a new timer while an old one was still active. Cancelling old one.")
+        active_turn_timers[game_id].cancel()
+
+    logger.info(f"G:{game_id} - Starting turn timer for {duration} seconds.")
+    # Create a new task that will call _handle_timeout after sleeping.
+    timer_task = asyncio.create_task(asyncio.sleep(duration))
+    # When the sleep is done, the callback will execute our timeout logic.
+    timer_task.add_done_callback(
+        lambda t: asyncio.create_task(_handle_timeout(game_id)) if not t.cancelled() else None
+    )
+    active_turn_timers[game_id] = timer_task
+
+
+def _cancel_turn_timer(game_id: str):
+    """Cancels and removes the timer task for a game."""
+    if game_id in active_turn_timers:
+        task = active_turn_timers.pop(game_id) # Remove from dict
+        if not task.done():
+            task.cancel()
+            logger.info(f"G:{game_id} - Turn timer cancelled.")
+
+
 class GameConnectionManager:
 	def __init__(self):
 		# game_id -> user_id (int) -> WebSocket
@@ -260,7 +338,7 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 				await game_manager.send_to_player(game_id, player_id_of_this_connection, {"type": "error", "message": "Game session ended unexpectedly."})
 				break
 
-			if current_game_state_model.status != "in_progress":
+			if current_game_state_model.status != "in_progress" and current_game_state_model.status != "waiting_for_ready":
 				if current_game_state_model.status in ["finished", "abandoned_by_player", "error_content_load"]:
 					logger.info(f"G:{game_id} is terminal ({current_game_state_model.status}). P:{player_id_of_this_connection} loop ending.")
 					# final_event_in_loop = game_service.prepare_reconnect_state_payload(game_id, current_game_state_model, player_id_of_this_connection)
@@ -317,17 +395,22 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 			# check whether next move is by a bot
 			if updated_game_state_model.status == "in_progress":
 				next_player_id = updated_game_state_model.current_player_id
-				if next_player_id and updated_game_state_model.players[next_player_id].is_bot:
+				if next_player_id and not updated_game_state_model.players[next_player_id].is_bot:
+					logger.info(f"Turn is now for human player P:{next_player_id} in G:{game_id}. Starting their timer.")
+					_start_turn_timer(game_id, updated_game_state_model.turn_duration_seconds)
+				# If it's a bot's turn, schedule its move.
+				elif next_player_id and updated_game_state_model.players[next_player_id].is_bot:
 					logger.info(f"Turn passed to bot P:{next_player_id} in G:{game_id}. Scheduling move.")
 					asyncio.create_task(handle_bot_turn(game_id, next_player_id))
 			
-			if updated_game_state_model.status != "in_progress":
-				logger.info(f"G:{game_id} status changed to '{updated_game_state_model.status}'. P:{player_id_of_this_connection} WS loop might end.")
-				if updated_game_state_model.status in ["error_content_load", "finished", "abandoned_by_player"]:
-					break # Exit loop
-
+			if updated_game_state_model.status not in ["in_progress", "waiting_for_ready"]:
+				logger.info(f"G:{game_id} status changed to '{updated_game_state_model.status}'. P:{player_id_of_this_connection} WS loop will end.")
+				_cancel_turn_timer(game_id) # Ensure timer is cleaned up on game end
+				break
 	except WebSocketDisconnect:
 		logger.info(f"WS Disconnected: P:{player_id_of_this_connection} G:{game_id}. Client state: {websocket.client_state}")
+		
+		_cancel_turn_timer(game_id)
 		# Fetch current state before processing disconnect to avoid race conditions
 		gs_on_dc = matchmaking_service.get_full_game_state(game_id)
 		if gs_on_dc : # Only process if game state exists and game was active for this player
@@ -354,6 +437,7 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 			except Exception: pass
 	
 	finally:
+		_cancel_turn_timer(game_id)
 		logger.debug(f"Finally block for P:{player_id_of_this_connection} G:{game_id}. WS State: {websocket.client_state}")
 		if websocket.client_state != WebSocketState.DISCONNECTED:
 			try:

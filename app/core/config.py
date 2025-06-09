@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     XP_FOR_GAME_LOSS: int = 5
     XP_FOR_GAME_DRAW: int = 10
     XP_FOR_GAME_WIN_BY_FORFEIT: int = 10
+
+    MAX_MISTAKES: int = 3 
+    GAME_MAX_ROUNDS: int = 3
+    DEFAULT_TURN_DURATION_SECONDS: int  = 30
     # Please set your Gemini API Key in the .env file
     GEMINI_API_KEY: str = "YOUR_GEMINI_API_KEY_HERE" # Added this line
     MATCHMAKING_BOT_THRESHOLD_SECONDS: int = 15

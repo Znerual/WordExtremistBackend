@@ -9,6 +9,12 @@
             document.getElementById('delete-form-' + userId).submit();
         }
     }
+
+    function toggleDetails(userId) {
+        const detailsRow = document.getElementById('details-row-' + userId);
+        detailsRow.classList.toggle('show');
+    }
+
 </script>
 {% endblock %}
 
@@ -23,12 +29,11 @@
         <table>
             <thead>
                 <tr>
-                    <th>DB ID</th>
+                    <th>ID / Type</th>
                     <th>Username</th>
                     <th>Email</th>
                     <th>Level</th>
-                    <th>Active</th>
-                    <th>Admin</th>
+                    <th>Status</th>
                     <th>Last Login</th>
                     <th>Actions</th>
                 </tr>
@@ -36,22 +41,88 @@
             <tbody>
                 {% for u in users %}
                 <tr>
-                    <td>{{ u.id }}</td>
+                    <td>
+                        <strong>{{ u.id }}</strong><br>
+                        <small style="color: {{ '#6c757d' if not u.is_superuser else '#dc3545' }};">
+                            {% if u.is_bot %}Bot 🤖{% elif u.is_superuser %}Admin 👑{% else %}Player{% endif %}
+                        </small>
+                    </td>
                     <td>{{ u.username or 'N/A' }}</td>
                     <td>{{ u.email or 'N/A' }}</td>
-                    <td>{{ u.level }}</td>
-                    <td>{{ '✅' if u.is_active else '❌' }}</td>
-                    <td>{{ '👑' if u.is_superuser else '' }}</td>
+                    <td>Lv. {{ u.level }} <br><small>{{ u.experience }} XP</small></td>
+                    <td>{{ '✅ Active' if u.is_active else '❌ Inactive' }}</td>
                     <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'Never' }}</td>
                     <td class="action-links">
+                        <button type="button" class="details" onclick="toggleDetails({{ u.id }})">Details</button>
                         <a href="/admin/user/{{ u.id }}/edit" class="edit">Edit</a>
                         <form id="delete-form-{{ u.id }}" method="post" action="/admin/user/{{ u.id }}/delete" style="display:inline;">
                             <button type="button" class="delete" onclick="confirmDelete({{ u.id }}, '{{ u.username or u.email }}')">Delete</button>
                         </form>
                     </td>
                 </tr>
+                <tr id="details-row-{{ u.id }}" class="details-row">
+                    <td colspan="7" class="details-cell">
+                        <div class="details-grid">
+                            <div>
+                                <strong>Country:</strong>
+                                {% if u.country %}<span>{{ u.country }}</span>{% else %}<span class="null-value">Not Set</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Mother Tongue:</strong>
+                                {% if u.mother_tongue %}<span>{{ u.mother_tongue }}</span>{% else %}<span class="null-value">Not Set</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Preferred Language:</strong>
+                                {% if u.preferred_language %}<span>{{ u.preferred_language }}</span>{% else %}<span class="null-value">Not Set</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Language Level:</strong>
+                                {% if u.language_level %}<span>{{ u.language_level }}</span>{% else %}<span class="null-value">Not Set</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Gender:</strong>
+                                {% if u.gender %}<span>{{ u.gender }}</span>{% else %}<span class="null-value">Not Set</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Birthday:</strong>
+                                {% if u.birthday %}<span>{{ u.birthday.strftime('%Y-%m-%d') }}</span>{% else %}<span class="null-value">Not Set</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Profile Pic URL:</strong>
+                                {% if u.profile_pic_url %}
+                                    <span class="long-text-wrap">{{ u.profile_pic_url }}</span>
+                                {% else %}
+                                    <span class="null-value">Not Set</span>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <strong>Words Count:</strong>
+                                <span>{{ u.words_count }}</span>
+                            </div>
+                            <div>
+                                <strong>Created At:</strong>
+                                <span>{{ u.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                            </div>
+                        </div>
+                        <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 15px 0;">
+                        <div class="details-grid">
+                            <div>
+                                <strong>Client Provided ID:</strong>
+                                {% if u.client_provided_id %}<span>{{ u.client_provided_id }}</span>{% else %}<span class="null-value">N/A</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Play Games ID:</strong>
+                                {% if u.play_games_player_id %}<span>{{ u.play_games_player_id }}</span>{% else %}<span class="null-value">N/A</span>{% endif %}
+                            </div>
+                            <div>
+                                <strong>Google ID:</strong>
+                                {% if u.google_id %}<span>{{ u.google_id }}</span>{% else %}<span class="null-value">N/A</span>{% endif %}
+                            </div>
+                        </div>
+                    </td>
+                </tr>
                 {% else %}
-                <tr><td colspan="8" style="text-align:center;">No users found.</td></tr>
+                <tr><td colspan="7" style="text-align:center;">No users found.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

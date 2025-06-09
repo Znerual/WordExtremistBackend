@@ -76,8 +76,54 @@
         tr:last-child td { border-bottom: none; }
         .action-links a, .action-links button { text-decoration: none; padding: 4px 8px; border-radius: 4px; font-size: 13px; margin-right: 5px; border: 1px solid transparent; cursor: pointer; }
         .action-links .edit { background-color: #e9ecef; color: var(--text-color); }
+        .action-links .details { background-color: #e2f3ff; color: var(--primary-color); } /* For details button */
         .action-links .edit:hover { background-color: #dae0e5; }
         .action-links .delete { background-color: #ffe8ea; color: var(--danger-color); border-color: var(--danger-color); }
+       
+        /* collapsible rows --- */
+        .details-row {
+            display: none;
+        }
+        .details-row.show {
+            display: table-row;
+        }
+        .details-cell {
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .details-grid strong {
+            display: block;
+            font-weight: 600;
+            color: var(--secondary-color);
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+        .details-grid span {
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .details-grid .null-value {
+            color: #aaa;
+            font-style: italic;
+        }
+
+        .long-text-wrap {
+            word-break: break-all;  /* Force break anywhere */
+            overflow-wrap: break-word; /* Alternative, try to break at good points first */
+            white-space: normal; /* Ensure it's not set to nowrap by a parent */
+            display: block; /* Make it a block element to respect width if needed */
+            max-width: 100%; /* Don't exceed the parent cell's width */
+            /* Optional: if you want to explicitly limit its width
+               This can be useful if the grid column itself isn't constraining enough.
+               You might need to experiment with this value.
+            */
+            /* width: 250px;  Adjust as needed or remove if max-width is enough */
+        }
 
         /* Forms */
         .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }

@@ -25,11 +25,8 @@ GEMINI_BOT_SCHEMA = {
 
 def _get_opponent(game_state: GameState) -> Optional[GameStatePlayer]:
     """Finds the human opponent in the game."""
-    bot_id = game_state.current_player_id
-    for player_id, player_state in game_state.players.items():
-        if player_id != bot_id:
-            return player_state
-    return None
+    player_id = game_state.ready_player_ids[0]
+    return game_state.players.get(player_id) if player_id else None
 
 def _calculate_probability(opponent_level: int, max_prob: float, min_prob: float) -> float:
     """Calculates a probability that decreases as the opponent's level increases."""

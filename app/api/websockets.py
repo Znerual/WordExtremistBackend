@@ -279,7 +279,7 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 			return
 
 		if current_game_state_model.status == "matched": # Game needs initialization
-			if len(game_manager.active_connections.get(game_id, {})) == 2:
+			if len(game_manager.active_connections.get(game_id, {})) == 2 or (len(game_manager.active_connections.get(game_id, {})) == 1 and current_game_state_model.is_bot_game):
 				logger.info(f"G:{game_id} both players connected. Initializing full game state (lang: {current_game_state_model.language}).")
 				# Pass the GameState object from matchmaking to be populated
 				current_game_state_model, game_start_events = game_service.initialize_new_game_state(
@@ -369,7 +369,7 @@ async def game_websocket_endpoint( # Renamed to avoid conflict with game_websock
 				break
 			current_game_state_model = latest_gs_model # Update our working copy
 
-			if current_game_state_model.status != "in_progress":
+			if current_game_state_model.status != "in_progress" and current_game_state_model.status != "waiting_for_ready":
 				logger.debug(f"G:{game_id} not 'in_progress' (is '{current_game_state_model.status}'). Ignoring action from P:{player_id_of_this_connection} after receive.")
 				# If terminal, client should have already been informed by initial event block or other player's action.
 				# No need to send another game_state_reconnect UNLESS this client missed it.

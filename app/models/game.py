@@ -16,6 +16,7 @@ class SentencePromptPublic(BaseModel):
 class GameStatePlayer(BaseModel):
     id: int # internal player_id
     name: str
+    level: int
     score: int = 0
     mistakes_in_current_round: int = 0
     words_played: List[str] = []
@@ -40,6 +41,7 @@ class GameState(BaseModel):
     winner_user_id: int | None = None # The player_id of the winner, if any
     turn_duration_seconds: int = Field(default=30, description="Duration of a player's turn in seconds.")
     ready_player_ids: List[int] = Field(default_factory=list, description="List of player IDs who have signaled they are ready for the current round.")
+    is_bot_game: bool = False # True if this game is against a bot
     
 class PlayerAction(BaseModel):
     action_type: str # "submit_word", "send_emoji"

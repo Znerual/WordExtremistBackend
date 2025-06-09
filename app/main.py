@@ -79,6 +79,7 @@ async def matchmaking_bot_check_task(interval_seconds: int = 5):
                         from app.api.matchmaking import player_match_status, MatchmakingStatusResponse
                         game_state = matchmaking_service.get_game_info(game_id)
                         
+                        
                         player_match_status[player.id] = MatchmakingStatusResponse(
                             status="matched", 
                             game_id=game_id, 
@@ -90,6 +91,8 @@ async def matchmaking_bot_check_task(interval_seconds: int = 5):
                             your_player_id_in_game=player.id,
                             opponent_level=bot_user.level
                         )
+
+                        
         except Exception as e:
             logger.error(f"Error in matchmaking bot check task: {e}", exc_info=True)
             try:

@@ -75,11 +75,11 @@ def try_match_players() -> Tuple[str, UserPublic, UserPublic, str] | None:
 
             p1_gs_player = GameStatePlayer(
                 id=player1.id, name=player1.username or f"Player {player1.id}",
-                score=0, mistakes_in_current_round=0, words_played=[]
+                score=0, mistakes_in_current_round=0, level=player1.level, words_played=[]
             )
             p2_gs_player = GameStatePlayer(
                 id=player2.id, name=player2.username or f"Player {player2.id}",
-                score=0, mistakes_in_current_round=0, words_played=[]
+                score=0, mistakes_in_current_round=0, level=player2.level, words_played=[]
             )
 
             # Basic game state, to be fully initialized by game_service on first connection
@@ -113,17 +113,18 @@ def create_bot_match(player: UserPublic, lang: str, db: Session) -> Tuple[str, U
     bot_names = settings.BOT_USERNAMES.get(lang, settings.BOT_USERNAMES.get("en", ["Bot"]))
     bot_game_user = UserPublic.model_validate(bot_user_template)
     bot_game_user.username = random.choice(bot_names)
+    bot_level = max(player.level + random.randint(-5, 5), 1)  # Bot level can vary around the player's level
     
     # 3. Create the GameState object
     game_id = f"game_{uuid.uuid4().hex[:12]}"
     
     human_gs_player = GameStatePlayer(
         id=player.id, name=player.username or f"Player {player.id}",
-        is_bot=False, score=0
+        is_bot=False, score=0, level=player.level, mistakes_in_current_round=0, words_played=[]
     )
     bot_gs_player = GameStatePlayer(
         id=bot_game_user.id, name=bot_game_user.username,
-        is_bot=True, score=0
+        is_bot=True, score=0, level=bot_level, mistakes_in_current_round=0, words_played=[]
     )
     
     # Randomize who goes first
@@ -135,11 +136,14 @@ def create_bot_match(player: UserPublic, lang: str, db: Session) -> Tuple[str, U
         players={player.id: human_gs_player, bot_game_user.id: bot_gs_player},
         status="matched",
         last_action_timestamp=time.time(),
-        matchmaking_player_order=players_in_order
+        matchmaking_player_order=players_in_order,
+        is_bot_game=True, 
     )
     
     logger.info(f"Created bot match {game_id} for '{player.username}' vs '{bot_game_user.username}' (P1: {players_in_order[0]})")
     
+    if lang in waiting_players_by_lang and not waiting_players_by_lang[lang]: # Cleanup empty list
+        del waiting_players_by_lang[lang]
     return game_id, bot_game_user
 
 

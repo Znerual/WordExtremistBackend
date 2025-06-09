@@ -253,6 +253,7 @@ def process_player_game_action(
     sentence_prompt_db_id = current_prompt_details.id if current_prompt_details else None
 
     if action_type == "client_ready":
+        logger.info(f"Player {acting_player_id} is ready for game {current_game_state.game_id}. Current status: {current_game_state.status}")
         if acting_player_id not in current_game_state.ready_player_ids:
             current_game_state.ready_player_ids.append(acting_player_id)
             logger.info(f"Player {acting_player_id} is ready for G:{current_game_state.game_id}. Ready players: {len(current_game_state.ready_player_ids)}/{len(current_game_state.players)}")
@@ -275,7 +276,24 @@ def process_player_game_action(
                 "turn_duration_seconds": current_game_state.turn_duration_seconds,
             }
             events.append(GameEvent("round_started", round_started_payload, broadcast=True))
-        
+        elif len(current_game_state.ready_player_ids) == 1 and current_game_state.is_bot_game:
+            logger.info(f"Players ready for bot game G:{current_game_state.game_id}. Starting round {current_game_state.current_round}.")
+            current_game_state.status = "in_progress"
+
+            # Set the starting player for the round (P1 on odd rounds, P2 on even)
+            current_game_state.current_player_id = p1_id if current_game_state.current_round % 2 == 1 else p2_id
+            current_game_state.last_action_timestamp = time.time()
+
+            # Create an event to inform clients the round has officially started and the timer is running
+            round_started_payload = {
+                "game_id": current_game_state.game_id,
+                "round": current_game_state.current_round,
+                "current_player_id": str(current_game_state.current_player_id),
+                "last_action_timestamp": current_game_state.last_action_timestamp,
+                "turn_duration_seconds": current_game_state.turn_duration_seconds,
+            }
+            events.append(GameEvent("round_started", round_started_payload, target_player_id=current_game_state.ready_player_ids[0]))
+
         return current_game_state, events
 
     elif action_type == "submit_word":

@@ -205,6 +205,20 @@ async def link_device_with_google_account(
             detail="An error occurred during Google sign-in processing."
         )
 
+@router.get("/users/others/{user_id}", response_model=UserPublic)
+def read_user_profile(user_id: int, db: Session = Depends(deps.get_db)):
+    """
+    Get any user's public profile information by their database ID.
+    """
+    db_user = crud_user.get_user(db, user_id=user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # You might want to create a different Pydantic model here
+    # that excludes sensitive info like email if you don't want it public.
+    # For now, we'll reuse UserPublic.
+    return db_user
+
 
 @router.get("/users/me", response_model=UserPublic)
 async def read_users_me(

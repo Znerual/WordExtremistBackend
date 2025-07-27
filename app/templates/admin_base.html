@@ -155,6 +155,7 @@
                 <nav class="nav-links">
                     <a href="/admin/" class="{{ 'active' if request.url.path == '/admin/' else '' }}">Dashboard</a>
                     <a href="/admin/monitoring" class="{{ 'active' if 'monitoring' in request.url.path else '' }}">Monitoring</a>
+                    <a href="/admin/logs" class="{{ 'active' if 'logs' in request.url.path else '' }}">Logs</a>
                     <a href="/admin/logout" class="logout">Logout</a>
                 </nav>
             </div>

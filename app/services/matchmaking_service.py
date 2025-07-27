@@ -34,14 +34,14 @@ def add_player_to_matchmaking_pool(player: UserPublic, requested_language: str |
         waiting_players_by_lang[lang_key] = []
 
     if is_player_waiting(player.id):
-        logger.error(f"Player '{player.username}' (ID: {player.id}) is already in a matchmaking pool. Not adding again.")
+        logger.warning(f"P:{player.id} ('{player.username}') is already in a matchmaking pool. Not adding again.")
         return
     
     waiting_players_by_lang[lang_key].append((player, time.time()))  # Store player with current timestamp for potential timeout handling
-    logger.info(f"Player '{player.username}' (ID: {player.id}) added to '{lang_key}' waiting pool. Pool size for '{lang_key}': {len(waiting_players_by_lang[lang_key])}")
+    logger.info(f"P:{player.id} ('{player.username}', Lvl:{player.level}) added to '{lang_key}' waiting pool. Pool size for '{lang_key}': {len(waiting_players_by_lang[lang_key])}")
 
 
-def remove_player_from_matchmaking_pool(user_id: int):
+def remove_player_from_matchmaking_pool(user_id: int, reason: str = "unknown"):
     """Removes a player from the waiting pool by their ID."""
     global waiting_players_by_lang
     removed = False
@@ -50,11 +50,12 @@ def remove_player_from_matchmaking_pool(user_id: int):
         waiting_players_by_lang[lang_key] = [(p, t) for p, t in waiting_players_by_lang[lang_key] if p.id != user_id]
         if len(waiting_players_by_lang[lang_key]) < initial_len:
             removed = True
-            logger.info(f"Player ID {user_id} removed from '{lang_key}' waiting pool.")
+            logger.info(f"P:{user_id} removed from '{lang_key}' waiting pool. Reason: {reason}.")
         if not waiting_players_by_lang[lang_key]: # Cleanup empty list
             del waiting_players_by_lang[lang_key]
+            logger.info(f"Cleaned up empty waiting pool for language '{lang_key}'.")
     if not removed:
-        logger.error(f"Player ID {user_id} not found in any waiting pool for removal.")
+        logger.debug(f"P:{user_id} not found in any waiting pool for removal (reason: {reason}). This is normal if they were already matched.")
 
 
 # --- Modified to return UserPublic objects and only create basic game entry ---
@@ -84,7 +85,7 @@ def try_match_players() -> Tuple[str, UserPublic, UserPublic, str] | None:
 
             # Basic game state, to be fully initialized by game_service on first connection
             # This structure is now based on the GameState Pydantic model
-            active_games[game_id] = GameState(
+            new_game_state  = GameState(
                 game_id=game_id,
                 language=lang_key, # Set the game language
                 players={player1.id : p1_gs_player, player2.id : p2_gs_player },
@@ -92,10 +93,13 @@ def try_match_players() -> Tuple[str, UserPublic, UserPublic, str] | None:
                 last_action_timestamp=time.time(), # Custom field, not in GameState model, for cleanup
                 matchmaking_player_order=[player1.id, player2.id]
             )
-            logger.info(f"Matched game {game_id} (lang: {lang_key}) for '{player1.username}' vs '{player2.username}'")
-           
+            active_games[game_id] = new_game_state
+            logger.info(f"MATCH FOUND: G:{game_id} (lang: {lang_key}) for P:{player1.id} ('{player1.username}') vs P:{player2.id} ('{player2.username}')")
+            logger.debug(f"G:{game_id} - Initial 'matched' state created:\n{new_game_state.model_dump_json(indent=2)}")
+            
             if not lang_pool: # Cleanup empty list
                 del waiting_players_by_lang[lang_key]
+                logger.info(f"Cleaned up empty waiting pool for language '{lang_key}'.")
             return game_id, player1, player2, lang_key
     return None
 
@@ -104,7 +108,7 @@ def create_bot_match(player: UserPublic, lang: str, db: Session) -> Tuple[str, U
     Creates a new game state by matching a human player with a bot.
     Returns the game_id and the customized bot UserPublic object.
     """
-    logger.info(f"Creating bot match for player {player.username} in language '{lang}'.")
+    logger.info(f"Creating bot match for P:{player.id} ('{player.username}') in language '{lang}'.")
     
     # 1. Get the bot user template from the DB
     bot_user_template = crud_user.get_or_create_bot_user(db)
@@ -130,7 +134,7 @@ def create_bot_match(player: UserPublic, lang: str, db: Session) -> Tuple[str, U
     # Randomize who goes first
     players_in_order = random.sample([player.id, bot_game_user.id], 2)
     
-    active_games[game_id] = GameState(
+    new_game_state = GameState(
         game_id=game_id,
         language=lang,
         players={player.id: human_gs_player, bot_game_user.id: bot_gs_player},
@@ -139,9 +143,10 @@ def create_bot_match(player: UserPublic, lang: str, db: Session) -> Tuple[str, U
         matchmaking_player_order=players_in_order,
         is_bot_game=True, 
     )
-    
-    logger.info(f"Created bot match {game_id} for '{player.username}' vs '{bot_game_user.username}' (P1: {players_in_order[0]})")
-    
+    active_games[game_id] = new_game_state
+    logger.info(f"BOT MATCH CREATED: G:{game_id} for P:{player.id} ('{player.username}') vs BOT P:{bot_game_user.id} ('{bot_game_user.username}', Lvl:{bot_game_user.level}). P1 is {players_in_order[0]}.")
+    logger.debug(f"G:{game_id} - Initial bot match 'matched' state created:\n{new_game_state.model_dump_json(indent=2)}")
+
     if lang in waiting_players_by_lang and not waiting_players_by_lang[lang]: # Cleanup empty list
         del waiting_players_by_lang[lang]
     return game_id, bot_game_user
@@ -153,9 +158,11 @@ def get_game_info(game_id: str) -> Optional[GameState]:
     game_state_obj = active_games.get(game_id)
     if game_state_obj:
         # If you stored it as a Pydantic model directly:
+        logger.debug(f"G:{game_id} - Accessed game info. Current status: {game_state_obj.status}")
         return game_state_obj
         # If you stored it as a dict and want to return the dict:
         # return game_state_obj.model_dump() # Or just game_state_obj if it's already a dict
+    logger.warning(f"G:{game_id} - Attempted to access game info for a non-existent game.")
     return None
 
 def get_full_game_state(game_id: str) -> Optional[GameState]:
@@ -168,10 +175,13 @@ def update_game_state(game_id: str, new_state: GameState): # Expects GameState m
     if game_id in active_games:
         active_games[game_id] = new_state # Store the Pydantic model directly
         active_games[game_id].last_action_timestamp = time.time() # Custom field for management
+        logger.debug(f"G:{game_id} - Game state UPDATED. New status: '{new_state.status}'. Current player: {new_state.current_player_id}")
     else:
-        print(f"Warning: Attempted to update non-existent game: {game_id}")
+        logger.warning(f"G:{game_id} - Attempted to update non-existent game.")
 
 def cleanup_game(game_id: str):
     if game_id in active_games:
-        print(f"Cleaning up game data for {game_id}")
+        logger.info(f"CLEANUP: G:{game_id} - Removing game data from active memory.")
         del active_games[game_id]
+    else:
+        logger.warning(f"CLEANUP: G:{game_id} - Attempted to clean up a game that was not in active memory.")

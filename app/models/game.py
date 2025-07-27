@@ -16,7 +16,7 @@ class SentencePromptPublic(BaseModel):
 class GameStatePlayer(BaseModel):
     id: int # internal player_id
     name: str
-    level: int
+    level: int = 1
     score: int = 0
     mistakes_in_current_round: int = 0
     words_played: List[str] = []

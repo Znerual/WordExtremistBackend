@@ -8,6 +8,7 @@ from fastapi import HTTPException
 # Mock payload for a new user from Google
 NEW_USER_GOOGLE_PAYLOAD = {
     "sub": "new_google_user_id_123",
+    "play_games_player_id": "new_google_user_id_123",
     "email": "new.user@example.com",
     "email_verified": True,
     "name": "New Google User",
@@ -22,6 +23,7 @@ EXISTING_USER_GOOGLE_ID = "existing_google_user_id_456"
 EXISTING_USER_EMAIL = "existing.user@example.com"
 EXISTING_USER_GOOGLE_PAYLOAD = {
     "sub": EXISTING_USER_GOOGLE_ID,
+    "play_games_player_id": "new_google_user_id_1234",
     "email": EXISTING_USER_EMAIL,
     "email_verified": True,
     "name": "Existing Google User",

@@ -8,10 +8,12 @@ def test_create_user_from_google_info(db_session: Session):
     google_id = "google_test_123"
     email = "test@example.com"
     username = "TestUser"
+    play_games_player_id = "1234567890"
     pic_url = "http://example.com/pic.jpg"
 
     user_in = UserCreateFromGoogle(
         google_id=google_id,
+        play_games_player_id=play_games_player_id,
         email=email,
         username=username,
         profile_pic_url=pic_url

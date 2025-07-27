@@ -6,6 +6,7 @@ from datetime import date, datetime
 class UserBase(BaseModel):
     email: EmailStr | None = None
     username: str | None = None # Display name
+    play_games_player_id: str | None = None
     profile_pic_url: HttpUrl | None = None
     level: int = Field(default=1)
     experience: int = Field(default=0)
@@ -17,8 +18,6 @@ class UserBase(BaseModel):
     gender: Optional[str] = Field(None, max_length=50)
     language_level: Optional[str] = Field(None, max_length=50, description="e.g., A1, B2, native")
 
-class UserCreateFromPGS(UserBase):
-    play_games_player_id: str
 
 class UserCreateFromGoogle(UserBase): # Data extracted from Google ID Token
     google_id: str

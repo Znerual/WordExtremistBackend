@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.schemas.system import DailyActiveUser
 from app.schemas.user import User
-from app.models.user import UserCreateFromGoogle, UserCreateFromPGS, GetOrCreateUserRequest  # Use this Pydantic model
+from app.models.user import UserCreateFromGoogle, GetOrCreateUserRequest  # Use this Pydantic model
 from app.core.config import settings
 from datetime import date
 
@@ -66,25 +66,11 @@ def get_user_by_email(db: Session, email: str) -> User | None: # Still useful
 def get_user_by_play_games_player_id(db: Session, play_games_player_id: str) -> User | None:
     return db.query(User).filter(User.play_games_player_id == play_games_player_id).first()
 
-def create_user_from_pgs_info(db: Session, user_in: UserCreateFromPGS) -> User:
-    db_user = User(
-        play_games_player_id=user_in.play_games_player_id,
-        email=user_in.email, # Might be null
-        username=user_in.username, # Might be null
-        profile_pic_url=str(user_in.profile_pic_url) if user_in.profile_pic_url else None,
-        # google_refresh_token=refresh_token # If you decide to store it
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-
-    logger.info(f"Created new user with Play Games Player ID: {user_in.play_games_player_id}, username: {user_in.username}")
-
-    return db_user
 
 def create_user_from_google_info(db: Session, user_in: UserCreateFromGoogle, commit_db: bool = True) -> User:
     db_user = User(
         google_id=user_in.google_id,
+        play_games_player_id=user_in.google_id,
         email=user_in.email,
         username=user_in.username or user_in.email.split('@')[0], # Default username
         profile_pic_url=str(user_in.profile_pic_url) if user_in.profile_pic_url else None

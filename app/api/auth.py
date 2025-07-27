@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.api import deps
 from app.core import security
-from app.models.user import DeviceLoginRequest, BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserCreateFromPGS, UserPublic, UserCreateFromGoogle, UserOptionalInfoUpdate
+from app.models.user import DeviceLoginRequest, BackendToken, GetOrCreateUserRequest, ServerAuthCodeRequest, UserPublic, UserCreateFromGoogle, UserOptionalInfoUpdate
 from app.models.game_log_display import UserWordVaultEntry
 from app.crud import crud_user, crud_game_log
 from app.core.security import get_password_hash, verify_password, create_access_token

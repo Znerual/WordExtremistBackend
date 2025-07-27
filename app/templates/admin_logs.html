@@ -4,157 +4,35 @@
 
 {% block head_extra %}
 <style>
-    /* Main filter bar */
-    .filter-bar {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 15px;
-        align-items: end;
-        margin-bottom: 20px;
-    }
+    /* ... all previous CSS styles remain the same ... */
+    .filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; align-items: end; margin-bottom: 20px; }
     .filter-bar .form-group { margin-bottom: 0; }
     .filter-bar button { height: 40px; }
-    
-    /* NEW: Logger filter styles */
-    .logger-filter-container {
-        background-color: #f8f9fa;
-        border: 1px solid #dee2e6;
-        padding: 15px;
-        margin-bottom: 20px;
-        border-radius: 5px;
-    }
-    .logger-filter-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 10px;
-    }
-    .logger-filter-header h3 {
-        margin: 0;
-        font-size: 1rem;
-    }
-    .logger-filter-header .btn-link {
-        background: none;
-        border: none;
-        color: var(--primary-color);
-        cursor: pointer;
-        padding: 0 5px;
-        font-size: 13px;
-    }
-    .logger-checkbox-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-        gap: 8px;
-    }
-    .logger-checkbox-grid label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        font-family: monospace;
-        user-select: none;
-    }
-
-    /* Log Groups */
-    .log-group-header {
-        background-color: #e9ecef;
-        padding: 10px 15px;
-        font-weight: bold;
-        cursor: pointer;
-        border-radius: 5px;
-        margin-top: 15px;
-        border: 1px solid #dee2e6;
-        user-select: none;
-        transition: background-color 0.2s;
-    }
+    .logger-filter-container { background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+    .logger-filter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .logger-filter-header h3 { margin: 0; font-size: 1rem; }
+    .logger-filter-header .btn-link { background: none; border: none; color: var(--primary-color); cursor: pointer; padding: 0 5px; font-size: 13px; }
+    .logger-checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+    .logger-checkbox-grid label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-family: monospace; user-select: none; }
+    .log-group-header { background-color: #e9ecef; padding: 10px 15px; font-weight: bold; cursor: pointer; border-radius: 5px; margin-top: 15px; border: 1px solid #dee2e6; user-select: none; transition: background-color 0.1s; }
     .log-group-header:hover { background-color: #dde2e6; }
-    .log-group-content {
-        display: none;
-        border: 1px solid #dee2e6;
-        border-top: none;
-        padding: 10px;
-        border-radius: 0 0 5px 5px;
-        background-color: #f8f9fa;
-    }
-
-    /* Log Entries (Compact) */
-    .log-entry {
-        background-color: #ffffff;
-        border-radius: 4px;
-        margin-bottom: 8px;
-        border: 1px solid #e9ecef;
-        padding: 8px 12px;
-        cursor: pointer;
-        transition: box-shadow 0.2s;
-    }
+    .log-group-content { display: none; border: 1px solid #dee2e6; border-top: none; padding: 10px; border-radius: 0 0 5px 5px; background-color: #f8f9fa; }
+    .log-entry { background-color: #ffffff; border-radius: 4px; margin-bottom: 8px; border: 1px solid #e9ecef; padding: 6px 12px; cursor: pointer; transition: box-shadow 0.2s; }
     .log-entry:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
     .log-entry.level-DEBUG { border-left: 4px solid #6c757d; }
     .log-entry.level-INFO { border-left: 4px solid #0d6efd; }
     .log-entry.level-WARNING { border-left: 4px solid #ffc107; }
     .log-entry.level-ERROR { border-left: 4px solid #dc3545; }
-    .log-entry.level-CRITICAL {
-        border-left: 4px solid #dc3545;
-        background-image: linear-gradient(45deg, rgba(248, 215, 218, 0.6) 25%, transparent 25%, transparent 50%, rgba(248, 215, 218, 0.6) 50%, rgba(248, 215, 218, 0.6) 75%, transparent 75%, transparent 100%);
-        background-size: 20px 20px;
-    }
-
-    .log-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 11px;
-        color: #6c757d;
-        margin-bottom: 6px;
-    }
-    .log-logger {
-        font-weight: bold;
-        color: #495057;
-        background-color: #e9ecef;
-        padding: 2px 5px;
-        border-radius: 3px;
-        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-    }
-    .log-message {
-        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-        font-size: 13px;
-        line-height: 1.4;
-        white-space: pre-wrap;
-        word-break: break-word;
-        color: #212529;
-        max-height: 2.8em;
-        overflow: hidden;
-        position: relative;
-        transition: max-height 0.3s ease-in-out;
-    }
-    .log-message::after {
-        content: '';
-        position: absolute;
-        bottom: 0; left: 0; right: 0;
-        height: 1.4em;
-        background: linear-gradient(to bottom, hsla(0, 0%, 100%, 0), hsla(0, 0%, 100%, 1));
-        pointer-events: none;
-        transition: opacity 0.3s;
-    }
+    .log-entry.level-CRITICAL { border-left: 4px solid #dc3545; background-image: linear-gradient(45deg, rgba(248, 215, 218, 0.6) 25%, transparent 25%, transparent 50%, rgba(248, 215, 218, 0.6) 50%, rgba(248, 215, 218, 0.6) 75%, transparent 75%, transparent 100%); background-size: 20px 20px; }
+    .log-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #6c757d; margin-bottom: 5px; }
+    .log-logger { font-weight: bold; color: #495057; background-color: #e9ecef; padding: 2px 5px; border-radius: 3px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; }
+    .log-message { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; font-size: 13px; line-height: 1.0; white-space: pre-wrap; word-break: break-word; color: #212529; max-height: 2.8em; overflow: hidden; position: relative;  }
+    .log-message::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1.4em; background: linear-gradient(to bottom, transparent 20%, white 95%); pointer-events: none; transition: opacity 0.3s; }
     .log-entry.expanded .log-message { max-height: 1500px; }
     .log-entry.expanded .log-message::after { opacity: 0; }
-
-    .log-message .traceback {
-        margin-top: 8px; background-color: rgba(0,0,0,0.03); padding: 8px;
-        border-radius: 4px; font-size: 11px; border: 1px solid #ddd;
-    }
-
-    .log-details {
-        display: none;
-        margin-top: 10px; padding-top: 10px; border-top: 1px dashed #dee2e6;
-        font-size: 11px; color: #555; font-family: monospace;
-    }
-    .log-entry.expanded .log-details {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 4px 15px;
-        word-break: break-all;
-        overflow: hidden;
-    }
+    .log-message .traceback { margin-top: 8px; background-color: rgba(0,0,0,0.03); padding: 8px; border-radius: 4px; font-size: 11px; border: 1px solid #ddd; }
+    .log-details { display: none; margin-top: 2px; padding-top: 2px; border-top: 1px dashed #dee2e6; font-size: 11px; color: #555; font-family: monospace; }
+    .log-entry.expanded .log-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 15px; word-break: break-all; overflow: hidden; }
     .log-details > div { min-width: 0; }
     .log-details strong { color: #333; }
 </style>
@@ -194,7 +72,6 @@
             <button type="submit" class="btn btn-primary">Filter</button>
         </div>
 
-        <!-- NEW: Logger Filter Section -->
         {% if all_loggers %}
         <div class="logger-filter-container">
             <div class="logger-filter-header">
@@ -219,64 +96,73 @@
 </div>
 
 <div class="card">
-    {% if error_message %}
-        <div class="message error">{{ error_message }}</div>
-    {% elif not logs %}
-        <div class="message">No log entries found for the selected filters.</div>
-    {% else %}
-        <p>Showing {{ logs|length }} of {{ total_groups }} groups. Click on a group header or individual log to expand.</p>
-        {% for group_key, entries in logs.items() %}
-            <div class="log-group">
-                <div class="log-group-header" onclick="toggleGroupContent(this)">
-                    {{ group_key }} ({{ entries|length }} entries)
-                </div>
-                <div class="log-group-content">
-                    {% for log in entries %}
-                        <div class="log-entry level-{{ log.level or 'INFO' }}" onclick="toggleLogDetails(event, this)">
-                            <div class="log-header">
-                                <span class="log-logger">{{ log.logger or 'unknown' }} ({{ log.line or '?' }})</span>
-                                <span class="log-timestamp">{{ log.timestamp }}</span>
-                            </div>
-                            <div class="log-message">
-                                {{ log.message }}
-                                {% if log.exc_info %}
-                                    <pre class="traceback">{{ log.exc_info }}</pre>
-                                {% endif %}
-                            </div>
-                            <div class="log-details">
-                                <div><strong>Function:</strong> <span>{{ log.function or 'N/A' }}</span></div>
-                                <div><strong>Module:</strong> <span>{{ log.module or 'N/A' }}</span></div>
-                                <div><strong>Task Name:</strong> <span>{{ log.taskName or 'N/A' }}</span></div>
-                                <div><strong>Thread Name:</strong> <span>{{ log.thread_name or 'N/A' }}</span></div>
-                            </div>
-                        </div>
-                    {% endfor %}
-                </div>
-            </div>
-        {% endfor %}
-    {% endif %}
-
-    {% if total_pages > 1 %}
-    <div class="pagination">
-        {% set query_params = request.query_params.multi_items() | rejectattr('0', 'equalto', 'page') | list %}
-        {% set base_url = request.url.path + '?' + query_params|urlencode if query_params else request.url.path + '?' %}
-        {% if page > 1 %}<a href="{{ base_url }}&page={{ page - 1 }}">Previous</a>{% endif %}
-        <span class="current">Page {{ page }} of {{ total_pages }}</span>
-        {% if page < total_pages %}<a href="{{ base_url }}&page={{ page + 1 }}">Next</a>{% endif %}
+    <div class="live-update-toggle">
+        <input type="checkbox" id="live-update-checkbox">
+        <label for="live-update-checkbox">Enable Live Update (every 5s)</label>
     </div>
-    {% endif %}
+    
+    <div id="logs-container">
+        <!-- Initial content rendered by server -->
+        {% if error_message %}
+            <div class="message error">{{ error_message }}</div>
+        {% elif not logs %}
+            <div class="message">No log entries found for the selected filters.</div>
+        {% else %}
+            <p>Showing {{ logs|length }} of {{ total_groups }} groups. Click on a group header or individual log to expand.</p>
+            {% for group_key, entries in logs.items() %}
+                <div class="log-group">
+                    <div class="log-group-header" onclick="toggleGroupContent(this)">
+                        {{ group_key }} ({{ entries|length }} entries)
+                    </div>
+                    <div class="log-group-content">
+                        {% for log in entries %}
+                            <div class="log-entry level-{{ log.level or 'INFO' }}" onclick="toggleLogDetails(event, this)">
+                                <div class="log-header">
+                                    <span class="log-logger">{{ log.logger or 'unknown' }} ({{ log.line or '?' }})</span>
+                                    <span class="log-timestamp">{{ log.timestamp }}</span>
+                                </div>
+                                <div class="log-message">
+                                    {{ log.message }}
+                                    {% if log.exc_info %}
+                                        <pre class="traceback">{{ log.exc_info }}</pre>
+                                    {% endif %}
+                                </div>
+                                <div class="log-details">
+                                    <div><strong>Function:</strong> <span>{{ log.function or 'N/A' }}</span></div>
+                                    <div><strong>Module:</strong> <span>{{ log.module or 'N/A' }}</span></div>
+                                    <div><strong>Task Name:</strong> <span>{{ log.taskName or 'N/A' }}</span></div>
+                                    <div><strong>Thread Name:</strong> <span>{{ log.thread_name or 'N/A' }}</span></div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    <div id="pagination-container">
+        <!-- Initial pagination rendered by server -->
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% set query_params = request.query_params.multi_items() | rejectattr('0', 'equalto', 'page') | list %}
+            {% set base_url = request.url.path + '?' + query_params|urlencode if query_params else request.url.path + '?' %}
+            {% if page > 1 %}<a href="{{ base_url }}&page={{ page - 1 }}">Previous</a>{% endif %}
+            <span class="current">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}<a href="{{ base_url }}&page={{ page + 1 }}">Next</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+    let liveUpdateInterval = null;
+
     function toggleGroupContent(headerElement) {
         const content = headerElement.nextElementSibling;
-        if (content.style.display === "block") {
-            content.style.display = "none";
-        } else {
-            content.style.display = "block";
-        }
+        content.style.display = content.style.display === "block" ? "none" : "block";
     }
 
     function toggleLogDetails(event, entryElement) {
@@ -284,11 +170,136 @@
         entryElement.classList.toggle('expanded');
     }
 
-    // NEW: Function for check/uncheck all
     function toggleAllLoggers(check) {
         document.querySelectorAll('input[name="selected_loggers"]').forEach(checkbox => {
             checkbox.checked = check;
         });
     }
+
+    function renderLogs(data) {
+        const logsContainer = document.getElementById('logs-container');
+        const paginationContainer = document.getElementById('pagination-container');
+        
+        let content = '';
+        if (data.error_message) {
+            content = `<div class="message error">${data.error_message}</div>`;
+        } else if (Object.keys(data.logs).length === 0) {
+            content = `<div class="message">No log entries found for the selected filters.</div>`;
+        } else {
+            content = `<p>Showing ${Object.keys(data.logs).length} of ${data.total_groups} groups. Click on a group header or individual log to expand.</p>`;
+            for (const [groupKey, entries] of Object.entries(data.logs)) {
+                content += `
+                    <div class="log-group">
+                        <div class="log-group-header" onclick="toggleGroupContent(this)">
+                            ${groupKey} (${entries.length} entries)
+                        </div>
+                        <div class="log-group-content">
+                            ${entries.map(log => `
+                                <div class="log-entry level-${log.level || 'INFO'}" onclick="toggleLogDetails(event, this)">
+                                    <div class="log-header">
+                                        <span class="log-logger">${log.logger || 'unknown'} (${log.line || '?'})</span>
+                                        <span class="log-timestamp">${log.timestamp}</span>
+                                    </div>
+                                    <div class="log-message">
+                                        ${log.message.replace(/</g, "<").replace(/>/g, ">")}
+                                        ${log.exc_info ? `<pre class="traceback">${log.exc_info.replace(/</g, "<").replace(/>/g, ">")}</pre>` : ''}
+                                    </div>
+                                    <div class="log-details">
+                                        <div><strong>Function:</strong> <span>${log.function || 'N/A'}</span></div>
+                                        <div><strong>Module:</strong> <span>${log.module || 'N/A'}</span></div>
+                                        <div><strong>Task Name:</strong> <span>${log.taskName || 'N/A'}</span></div>
+                                        <div><strong>Thread Name:</strong> <span>${log.thread_name || 'N/A'}</span></div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        logsContainer.innerHTML = content;
+
+        let paginationContent = '';
+        if (data.total_pages > 1) {
+            const urlParams = new URLSearchParams(window.location.search);
+            paginationContent = '<div class="pagination">';
+            if (data.page > 1) {
+                urlParams.set('page', data.page - 1);
+                paginationContent += `<a href="?${urlParams.toString()}">Previous</a>`;
+            }
+            paginationContent += `<span class="current">Page ${data.page} of ${data.total_pages}</span>`;
+            if (data.page < data.total_pages) {
+                urlParams.set('page', data.page + 1);
+                paginationContent += `<a href="?${urlParams.toString()}">Next</a>`;
+            }
+            paginationContent += '</div>';
+        }
+        paginationContainer.innerHTML = paginationContent;
+    }
+
+    // --- REVISED: fetchAndUpdateLogs with error handling ---
+    async function fetchAndUpdateLogs() {
+        const form = document.getElementById('filter-form');
+        const formData = new FormData(form);
+        const params = new URLSearchParams(formData);
+
+        const selectedLoggers = Array.from(document.querySelectorAll('input[name="selected_loggers"]:checked')).map(cb => cb.value);
+        params.delete('selected_loggers');
+        selectedLoggers.forEach(logger => params.append('selected_loggers', logger));
+        
+        const currentPageSpan = document.querySelector('#pagination-container .current');
+        params.set('page', currentPageSpan ? currentPageSpan.textContent.match(/Page (\d+)/)[1] : '1');
+
+        try {
+            const response = await fetch(`/admin/logs/data?${params.toString()}`);
+
+            // --- THIS IS THE FIX ---
+            if (response.status === 401 || response.status === 403) {
+                console.error("Authentication expired. Redirecting to login.");
+                if (liveUpdateInterval) {
+                    clearInterval(liveUpdateInterval);
+                    liveUpdateInterval = null;
+                }
+                // Redirect to the login page, telling it to come back here after success
+                window.location.href = `/admin/login?next=${window.location.pathname}${window.location.search}`;
+                return; // Stop further execution
+            }
+            // --- END FIX ---
+
+            if (!response.ok) {
+                console.error("Failed to fetch log data:", response.statusText);
+                return;
+            }
+            const data = await response.json();
+            renderLogs(data);
+        } catch (error) {
+            console.error("Error fetching or rendering logs:", error);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const liveUpdateCheckbox = document.getElementById('live-update-checkbox');
+        liveUpdateCheckbox.addEventListener('change', () => {
+            if (liveUpdateCheckbox.checked) {
+                if (!liveUpdateInterval) {
+                    fetchAndUpdateLogs();
+                    liveUpdateInterval = setInterval(fetchAndUpdateLogs, 5000);
+                }
+            } else {
+                if (liveUpdateInterval) {
+                    clearInterval(liveUpdateInterval);
+                    liveUpdateInterval = null;
+                }
+            }
+        });
+
+        document.getElementById('filter-form').addEventListener('submit', () => {
+             if (liveUpdateInterval) {
+                clearInterval(liveUpdateInterval);
+                liveUpdateInterval = null;
+                liveUpdateCheckbox.checked = false;
+            }
+        });
+    });
 </script>
 {% endblock %}

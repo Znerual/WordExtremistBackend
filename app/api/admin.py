@@ -4,11 +4,11 @@ import json
 import logging
 import pathlib
 from fastapi import APIRouter, Query, Request, Depends, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import datetime
 import math
 import re
@@ -51,6 +51,70 @@ def _extract_game_id_from_log(message: str) -> Optional[str]:
         return match.group(1)
     return None
 
+def _get_log_data(
+    log_file: str,
+    group_by: str,
+    filter_game_id: Optional[str],
+    filter_player_id: Optional[str],
+    filter_keyword: Optional[str],
+    selected_loggers_query: Optional[List[str]],
+    page: int
+) -> Dict[str, Any]:
+    log_dir = pathlib.Path("logs")
+    selected_file_path = log_dir / log_file
+    
+    all_log_entries, error_message, all_loggers = [], None, set()
+
+    if not selected_file_path.exists():
+        error_message = f"Log file not found: {log_file}"
+    else:
+        with open(selected_file_path, 'r', encoding='utf8') as f:
+            for line in f:
+                try:
+                    log_entry = json.loads(line)
+                    all_log_entries.append(log_entry)
+                    if log_entry.get("logger"):
+                        all_loggers.add(log_entry.get("logger"))
+                except json.JSONDecodeError:
+                    all_log_entries.append({"level": "INTERNAL", "message": f"Could not parse line: {line}", "timestamp": datetime.datetime.now().isoformat()})
+
+    selected_loggers = selected_loggers_query if selected_loggers_query is not None else list(all_loggers)
+
+    filtered_logs = []
+    for log in all_log_entries:
+        msg = log.get("message", "")
+        if (log.get("logger") in selected_loggers and
+            (not filter_keyword or filter_keyword.lower() in str(log).lower()) and
+            (not filter_game_id or filter_game_id in msg) and
+            (not filter_player_id or (f"P:{filter_player_id}" in msg or f"player_id_of_this_connection': {filter_player_id}" in str(log)))):
+            filtered_logs.append(log)
+
+    grouped_logs = defaultdict(list)
+    if group_by == 'date':
+        for log in filtered_logs:
+            grouped_logs[log.get("timestamp", "nodate")[:10]].append(log)
+    elif group_by == 'game_id':
+        for log in filtered_logs:
+            grouped_logs[_extract_game_id_from_log(log.get("message", "")) or "No Game ID"].append(log)
+
+    group_keys = sorted(list(grouped_logs.keys()), reverse=True)
+    
+    total_groups = len(group_keys)
+    total_pages = math.ceil(total_groups / LOGS_PER_PAGE)
+    start_index = (page - 1) * LOGS_PER_PAGE
+    end_index = start_index + LOGS_PER_PAGE
+    paginated_group_keys = group_keys[start_index:end_index]
+    paginated_logs = {key: grouped_logs[key] for key in paginated_group_keys}
+
+    return {
+        "logs": paginated_logs,
+        "error_message": error_message,
+        "all_loggers": sorted(list(all_loggers)),
+        "selected_loggers": selected_loggers,
+        "page": page,
+        "total_pages": total_pages,
+        "total_groups": total_groups,
+    }
 
 # --- UNPROTECTED AUTH ROUTES ---
 
@@ -103,8 +167,15 @@ async def handle_admin_logout():
 
 
 # --- PROTECTED ADMIN ROUTES ---
+@protected_router.get("/", response_class=HTMLResponse, tags=["Admin"])
+async def admin_dashboard(request: Request, current_user: UserPublic = Depends(deps.get_current_admin_user)):
+    """
+    Serves the main admin dashboard page with links to various admin sections.
+    """
+    return templates.TemplateResponse("admin_index.html", {"request": request, "user": current_user})
+
 @protected_router.get("/logs", response_class=HTMLResponse)
-async def view_system_logs(
+async def view_system_logs_page(
     request: Request,
     log_file: str = Query("app_info.jsonl", enum=["app_debug.jsonl", "app_info.jsonl", "app_error.jsonl"]),
     group_by: str = Query("date", enum=["date", "game_id"]),
@@ -115,95 +186,33 @@ async def view_system_logs(
     page: int = Query(1, ge=1),
     current_user: UserPublic = Depends(deps.get_current_admin_user)
 ):
-    """Serves the log viewer page."""
-    log_dir = pathlib.Path("logs")
-    selected_file_path = log_dir / log_file
-    
-    all_log_entries = []
-    error_message = None
-    all_loggers = set()
-
-    if not selected_file_path.exists():
-        error_message = f"Log file not found: {log_file}"
-    else:
-        with open(selected_file_path, 'r', encoding='utf8') as f:
-            for line in f: # Read all lines
-                try:
-                    log_entry = json.loads(line)
-                    all_log_entries.append(log_entry)
-                    if log_entry.get("logger"):
-                        all_loggers.add(log_entry.get("logger"))
-                except json.JSONDecodeError:
-                    all_log_entries.append({"level": "INTERNAL", "message": f"Could not parse line: {line}", "timestamp": datetime.datetime.now().isoformat()})
-
-
-    # --- Filtering Logic ---
-    if selected_loggers is None:
-        # If no selection is made (first load), treat all as selected
-        selected_loggers = list(all_loggers)
-
-    filtered_logs = []
-    for log in all_log_entries:
-        msg = log.get("message", "")
-        
-        # Apply filters
-        if log.get("logger") not in selected_loggers:
-            continue
-        if filter_keyword and filter_keyword.lower() not in str(log).lower():
-            continue
-        if filter_game_id and (filter_game_id not in msg):
-            continue
-        if filter_player_id and (f"P:{filter_player_id}" not in msg and f"player_id_of_this_connection': {filter_player_id}" not in str(log)):
-            continue
-            
-        filtered_logs.append(log)
-
-    # --- Grouping Logic ---
-    grouped_logs = defaultdict(list)
-    if group_by == 'date':
-        for log in filtered_logs:
-            date_key = log.get("timestamp", "nodate")[:10]
-            grouped_logs[date_key].append(log)
-    elif group_by == 'game_id':
-        for log in filtered_logs:
-            game_id = _extract_game_id_from_log(log.get("message", "")) or "No Game ID"
-            grouped_logs[game_id].append(log)
-    
-    # --- Pagination Logic ---
-    group_keys = sorted(list(grouped_logs.keys()), reverse=True)
-    
-    total_groups = len(group_keys)
-    total_pages = math.ceil(total_groups / LOGS_PER_PAGE)
-    start_index = (page - 1) * LOGS_PER_PAGE
-    end_index = start_index + LOGS_PER_PAGE
-    paginated_group_keys = group_keys[start_index:end_index]
-
-    paginated_logs = {key: grouped_logs[key] for key in paginated_group_keys}
+    log_data = _get_log_data(log_file, group_by, filter_game_id, filter_player_id, filter_keyword, selected_loggers, page)
     
     return templates.TemplateResponse("admin_logs.html", {
         "request": request,
         "user": current_user,
-        "logs": paginated_logs,
-        "error_message": error_message,
         "log_file_list": ["app_debug.jsonl", "app_info.jsonl", "app_error.jsonl"],
-        "all_loggers": sorted(list(all_loggers)), # Pass sorted list of unique loggers
-        "selected_loggers": selected_loggers, # Pass back the user's selection
         "selected_log_file": log_file,
         "group_by": group_by,
         "filter_game_id": filter_game_id,
         "filter_player_id": filter_player_id,
         "filter_keyword": filter_keyword,
-        "page": page,
-        "total_pages": total_pages,
-        "total_groups": total_groups,
+        **log_data,
     })
 
-@protected_router.get("/", response_class=HTMLResponse, tags=["Admin"])
-async def admin_dashboard(request: Request, current_user: UserPublic = Depends(deps.get_current_admin_user)):
-    """
-    Serves the main admin dashboard page with links to various admin sections.
-    """
-    return templates.TemplateResponse("admin_index.html", {"request": request, "user": current_user})
+# --- NEW: JSON Data Endpoint for AJAX polling ---
+@protected_router.get("/logs/data", response_class=JSONResponse)
+async def get_system_logs_data(
+    log_file: str = Query("app_info.jsonl", enum=["app_debug.jsonl", "app_info.jsonl", "app_error.jsonl"]),
+    group_by: str = Query("date", enum=["date", "game_id"]),
+    filter_game_id: Optional[str] = Query(None),
+    filter_player_id: Optional[str] = Query(None),
+    filter_keyword: Optional[str] = Query(None),
+    selected_loggers: Optional[List[str]] = Query(None),
+    page: int = Query(1, ge=1),
+):
+    log_data = _get_log_data(log_file, group_by, filter_game_id, filter_player_id, filter_keyword, selected_loggers, page)
+    return JSONResponse(content=log_data)
 
 @protected_router.get("/users", response_class=HTMLResponse, tags=["Admin User Management"])
 async def list_users_admin(
@@ -726,4 +735,4 @@ async def admin_monitoring_page(request: Request, current_user: UserPublic = Dep
 
 # Include the protected router under the main admin router.
 # All its routes will inherit the /admin prefix.
-router.include_router(protected_router)
+#router.include_router(protected_router)

@@ -321,7 +321,7 @@ app.include_router(game_data_router.router, prefix=settings.API_V1_STR + "/game-
 app.include_router(monitoring_router.router, prefix=settings.API_V1_STR + "/monitoring", tags=["Monitoring"])
 app.include_router(websocket_router.router, tags=["Game Sockets"]) # WebSockets usually don't have API prefix
 app.include_router(admin_router.router, prefix="/admin", include_in_schema=False)  # Admin routes are not in OpenAPI schema
-#app.include_router(admin_router.protected_router, prefix="/admin", include_in_schema=False)  # Admin routes are not in OpenAPI schema
+app.include_router(admin_router.protected_router, prefix="/admin", include_in_schema=False)  # Admin routes are not in OpenAPI schema
 
 logger.info("--- FastAPI Registered Routes ---")
 for route in app.routes:

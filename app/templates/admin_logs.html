@@ -1,0 +1,196 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Logs Viewer{% endblock %}
+
+{% block head_extra %}
+<style>
+    .filter-bar {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        align-items: end;
+        margin-bottom: 25px;
+    }
+    .filter-bar .form-group {
+        margin-bottom: 0;
+    }
+    .filter-bar button {
+        height: 40px; /* Align with input height */
+    }
+    .log-group-header {
+        background-color: #e9ecef;
+        padding: 10px 15px;
+        font-weight: bold;
+        cursor: pointer;
+        border-radius: 5px;
+        margin-top: 15px;
+        border: 1px solid #dee2e6;
+        user-select: none;
+    }
+    .log-group-header:hover {
+        background-color: #dde2e6;
+    }
+    .log-group-content {
+        display: none; /* Hidden by default */
+        border: 1px solid #dee2e6;
+        border-top: none;
+        padding: 15px;
+        border-radius: 0 0 5px 5px;
+    }
+    .log-entry {
+        font-family: monospace;
+        font-size: 13px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 10px;
+        background-color: #fdfdfd;
+        border: 1px solid #eee;
+    }
+    .log-entry.level-DEBUG { border-left: 4px solid #6c757d; }
+    .log-entry.level-INFO { border-left: 4px solid #007bff; }
+    .log-entry.level-WARNING { border-left: 4px solid #ffc107; }
+    .log-entry.level-ERROR { border-left: 4px solid #dc3545; }
+    .log-entry.level-CRITICAL { border-left: 4px solid #dc3545; background-color: #f8d7da; }
+
+    /* Pretty JSON styling */
+    .json-key { color: #a52a2a; /* brown */ }
+    .json-string { color: #008000; /* green */ }
+    .json-number { color: #0000ff; /* blue */ }
+    .json-boolean { color: #ff8c00; /* darkorange */ }
+    .json-null { color: #808080; /* gray */ }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1 class="page-title">Logs Viewer</h1>
+    <form method="get" id="filter-form">
+        <div class="filter-bar">
+            <div class="form-group">
+                <label for="log_file">Log File:</label>
+                <select id="log_file" name="log_file">
+                    {% for file in log_file_list %}
+                    <option value="{{ file }}" {% if file == selected_log_file %}selected{% endif %}>{{ file }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="group_by">Group By:</label>
+                <select id="group_by" name="group_by">
+                    <option value="date" {% if group_by == 'date' %}selected{% endif %}>Date</option>
+                    <option value="game_id" {% if group_by == 'game_id' %}selected{% endif %}>Game ID</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="filter_game_id">Game ID:</label>
+                <input type="text" id="filter_game_id" name="filter_game_id" value="{{ filter_game_id or '' }}" placeholder="game_...">
+            </div>
+            <div class="form-group">
+                <label for="filter_player_id">Player ID:</label>
+                <input type="text" id="filter_player_id" name="filter_player_id" value="{{ filter_player_id or '' }}" placeholder="e.g., 123">
+            </div>
+            <div class="form-group">
+                <label for="filter_keyword">Keyword:</label>
+                <input type="text" id="filter_keyword" name="filter_keyword" value="{{ filter_keyword or '' }}" placeholder="Any text...">
+            </div>
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    {% if error_message %}
+        <div class="message error">{{ error_message }}</div>
+    {% elif not logs %}
+        <div class="message">No log entries found for the selected filters.</div>
+    {% else %}
+        <p>Showing {{ logs|length }} of {{ total_groups }} groups.</p>
+        {% for group_key, entries in logs.items() %}
+            <div class="log-group">
+                <div class="log-group-header" onclick="toggleGroup(this)">
+                    {{ group_key }} ({{ entries|length }} entries)
+                </div>
+                <div class="log-group-content">
+                    {% for log in entries %}
+                        <pre class="log-entry level-{{ log.level }}">{{ log  tojson }}</pre>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% set query_params = request.query_params.multi_items() | rejectattr('0', 'equalto', 'page') | list %}
+        {% set base_url = request.url.path + '?' + query_params|urlencode if query_params else request.url.path + '?' %}
+
+        {% if page > 1 %}
+        <a href="{{ base_url }}&page={{ page - 1 }}">Previous</a>
+        {% endif %}
+
+        <span class="current">Page {{ page }} of {{ total_pages }}</span>
+
+        {% if page < total_pages %}
+        <a href="{{ base_url }}&page={{ page + 1 }}">Next</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleGroup(headerElement) {
+        const content = headerElement.nextElementSibling;
+        if (content.style.display === "block") {
+            content.style.display = "none";
+        } else {
+            content.style.display = "block";
+        }
+    }
+
+    function syntaxHighlight(json) {
+        if (typeof json != 'string') {
+            json = JSON.stringify(json, undefined, 2);
+        }
+        // 2. Escape HTML characters to prevent XSS
+        jsonString = jsonString.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>');
+        
+        // 3. Apply regex for syntax highlighting
+        return jsonString.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+            var cls = 'json-number';
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                    cls = 'json-key';
+                } else {
+                    cls = 'json-string';
+                }
+            } else if (/true|false/.test(match)) {
+                cls = 'json-boolean';
+            } else if (/null/.test(match)) {
+                cls = 'json-null';
+            }
+            return '<span class="' + cls + '">' + match + '</span>';
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const logEntries = document.querySelectorAll('.log-entry');
+        logEntries.forEach(entry => {
+            try {
+                // The text content is already stringified JSON from the template
+                const jsonObj = JSON.parse(entry.textContent);
+                entry.innerHTML = syntaxHighlight(jsonObj);
+            } catch (e) {
+                // If it fails, leave the original text
+                console.error("Failed to parse log entry for highlighting:", entry.textContent);
+                const safeText = entry.textContent;
+                entry.textContent = ''; // Clear the element
+                entry.appendChild(document.createTextNode(safeText)); // Append as safe text node
+            }
+        });
+    });
+</script>
+{% endblock %}

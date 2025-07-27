@@ -452,7 +452,7 @@ def process_player_game_action(
         
         if mistakes >= settings.MAX_MISTAKES:
             logger.info(f"G:{game_id} R:{round_num} P:{acting_player_id} - Reached max mistakes ({mistakes}) from timeouts. Ending round.")
-            current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.TIMEOUT_settings.MAX_MISTAKES, db) # Changed reason
+            current_game_state, round_game_over_events = _handle_round_or_game_end(current_game_state, acting_player_id, RoundEndReason.TIMEOUT_MAX_MISTAKES, db) # Changed reason
             events.extend(round_game_over_events)
         else:
             next_player_id = _determine_next_player(acting_player_id, p1_id, p2_id)

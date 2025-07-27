@@ -5,6 +5,7 @@ from typing import Tuple
 from sqlalchemy.orm import Session
 from app.schemas.game_log import WordSubmission # Import your WordSubmission SQLAlchemy model
 import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
 import json
 from app.core.config import settings
 from app.models.validation import WordValidationResult
@@ -15,6 +16,9 @@ validation_stats = {
     "total_calls": 0,
     "cache_hits": 0
 }
+
+GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash" ]
+
 
 GEMINI_RESPONSE_SCHEMA = {
     "type": "OBJECT",
@@ -118,39 +122,48 @@ Don't be too harsh, if the word is a reasonable response to the prompt, consider
     gemini_reason = "Gemini call failed or produced unexpected output."
 
     start_time = time.perf_counter()
+
+    for model_name in GEMINI_MODELS:
+        try:
+            logger.info(f"Attempting Gemini validation with model: {model_name}")
+            model = genai.GenerativeModel(model_name)
+            
+            generation_config = {"response_mime_type": "application/json", "response_schema": GEMINI_RESPONSE_SCHEMA}
+
+            response = model.generate_content(gemini_prompt_text, generation_config=generation_config)
+            
+            judgment = json.loads(response.text)
+            gemini_is_valid = judgment.get("is_valid", False)
+            gemini_creativity_score = judgment.get("creativity_score", 0)
+            gemini_reason = judgment.get("reason", "No reason provided.")
+            
+            logger.info(f"Gemini validation successful with model: {model_name}")
+            break  # Exit the loop on success
+
+        except google_exceptions.ResourceExhausted as e:
+            logger.warning(f"Gemini model '{model_name}' is rate-limited. Trying next model. Error: {e.message}")
+            gemini_reason = f"Model {model_name} was rate-limited."
+            continue  # Go to the next model in the list
+        
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred with Gemini model '{model_name}': {e}")
+            gemini_reason = f"Unexpected error with {model_name}: {e}"
+            break # Don't retry other models for unexpected errors like auth failures
+
+
     try:
-        # Use dict for generation_config as it's simpler and supported
-        generation_config = {
-            "response_mime_type": "application/json",
-            "response_schema": GEMINI_RESPONSE_SCHEMA
-        }
-
-        response = model.generate_content(
-            gemini_prompt_text,
-            generation_config=generation_config
-        )
-        
-        # Manual cleaning removed
-        
-        judgment = json.loads(response.text) # Parse response.text directly
-            # Fields are marked as required in the schema.
-            # Using .get() provides a safety net against unexpected schema violations or missing fields.
-        gemini_is_valid = judgment.get("is_valid")
-        gemini_creativity_score = judgment.get("creativity_score")
-        gemini_reason = judgment.get("reason") # Schema requires reason
-
-            # Initial default reason if Gemini's is missing (though schema requires it)
+        # Initial default reason if Gemini's is missing (though schema requires it)
         if gemini_reason is None:
             gemini_reason = "No reason provided by Gemini."
 
-            # Validate is_valid type and handle missing
+        # Validate is_valid type and handle missing
         if not isinstance(gemini_is_valid, bool):
             is_valid_original_type = type(gemini_is_valid).__name__
             gemini_is_valid = False # Default to invalid
             gemini_reason = f"Validation Error: Gemini output 'is_valid' was missing or not a boolean (type: {is_valid_original_type}). Original reason: {gemini_reason}"
             gemini_creativity_score = 0 # Creativity is 0 if validity is compromised
             
-            # Validate creativity_score type and handle missing (even if required, for robustness)
+        # Validate creativity_score type and handle missing (even if required, for robustness)
         if not isinstance(gemini_creativity_score, int):
             creativity_original_type = type(gemini_creativity_score).__name__
             gemini_reason = f"Validation Error: Gemini output 'creativity_score' was missing or not an integer (type: {creativity_original_type}). Original reason: {gemini_reason}"
@@ -159,18 +172,18 @@ Don't be too harsh, if the word is a reasonable response to the prompt, consider
             if gemini_is_valid: # If it was deemed valid but score type is wrong, mark as valid but minimally creative
                  gemini_creativity_score = 1 # Or keep 0 and add to reason it's unscorable
 
-            # Adjust creativity_score based on validity
+        # Adjust creativity_score based on validity
         if gemini_is_valid:
             if not (1 <= gemini_creativity_score <= 5):
                 gemini_reason += f" (Note: Gemini 'creativity_score' {gemini_creativity_score} was out of range 1-5 for a valid word. Clamping to 1.)"
                 gemini_creativity_score = 1 # Clamp to 1 if valid but score is out of expected range (e.g. 0 or >5)
         else: # Not valid
             if gemini_creativity_score != 0:
-                    # This is a corrective measure if Gemini didn't follow the "score should be 0 if invalid" instruction.
+                # This is a corrective measure if Gemini didn't follow the "score should be 0 if invalid" instruction.
                 gemini_reason += f" (Note: Word is invalid; 'creativity_score' was {gemini_creativity_score}. Setting to 0.)"
                 gemini_creativity_score = 0
             
-            # Ensure reason is never None before logging it (it could be if judgment.get("reason") was None and not updated)
+        # Ensure reason is never None before logging it (it could be if judgment.get("reason") was None and not updated)
         if gemini_reason is None: # Should not happen with the new check above, but as a final safety.
             gemini_reason = "Reason processing failed."
 

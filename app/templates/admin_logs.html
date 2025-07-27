@@ -4,19 +4,58 @@
 
 {% block head_extra %}
 <style>
+    /* Main filter bar */
     .filter-bar {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 15px;
         align-items: end;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
     }
-    .filter-bar .form-group {
-        margin-bottom: 0;
+    .filter-bar .form-group { margin-bottom: 0; }
+    .filter-bar button { height: 40px; }
+    
+    /* NEW: Logger filter styles */
+    .logger-filter-container {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
     }
-    .filter-bar button {
-        height: 40px; /* Align with input height */
+    .logger-filter-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
     }
+    .logger-filter-header h3 {
+        margin: 0;
+        font-size: 1rem;
+    }
+    .logger-filter-header .btn-link {
+        background: none;
+        border: none;
+        color: var(--primary-color);
+        cursor: pointer;
+        padding: 0 5px;
+        font-size: 13px;
+    }
+    .logger-checkbox-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 8px;
+    }
+    .logger-checkbox-grid label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-family: monospace;
+        user-select: none;
+    }
+
+    /* Log Groups */
     .log-group-header {
         background-color: #e9ecef;
         padding: 10px 15px;
@@ -26,40 +65,98 @@
         margin-top: 15px;
         border: 1px solid #dee2e6;
         user-select: none;
+        transition: background-color 0.2s;
     }
-    .log-group-header:hover {
-        background-color: #dde2e6;
-    }
+    .log-group-header:hover { background-color: #dde2e6; }
     .log-group-content {
-        display: none; /* Hidden by default */
+        display: none;
         border: 1px solid #dee2e6;
         border-top: none;
-        padding: 15px;
-        border-radius: 0 0 5px 5px;
-    }
-    .log-entry {
-        font-family: monospace;
-        font-size: 13px;
-        white-space: pre-wrap;
-        word-break: break-all;
         padding: 10px;
-        border-radius: 4px;
-        margin-bottom: 10px;
-        background-color: #fdfdfd;
-        border: 1px solid #eee;
+        border-radius: 0 0 5px 5px;
+        background-color: #f8f9fa;
     }
+
+    /* Log Entries (Compact) */
+    .log-entry {
+        background-color: #ffffff;
+        border-radius: 4px;
+        margin-bottom: 8px;
+        border: 1px solid #e9ecef;
+        padding: 8px 12px;
+        cursor: pointer;
+        transition: box-shadow 0.2s;
+    }
+    .log-entry:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
     .log-entry.level-DEBUG { border-left: 4px solid #6c757d; }
-    .log-entry.level-INFO { border-left: 4px solid #007bff; }
+    .log-entry.level-INFO { border-left: 4px solid #0d6efd; }
     .log-entry.level-WARNING { border-left: 4px solid #ffc107; }
     .log-entry.level-ERROR { border-left: 4px solid #dc3545; }
-    .log-entry.level-CRITICAL { border-left: 4px solid #dc3545; background-color: #f8d7da; }
+    .log-entry.level-CRITICAL {
+        border-left: 4px solid #dc3545;
+        background-image: linear-gradient(45deg, rgba(248, 215, 218, 0.6) 25%, transparent 25%, transparent 50%, rgba(248, 215, 218, 0.6) 50%, rgba(248, 215, 218, 0.6) 75%, transparent 75%, transparent 100%);
+        background-size: 20px 20px;
+    }
 
-    /* Pretty JSON styling */
-    .json-key { color: #a52a2a; /* brown */ }
-    .json-string { color: #008000; /* green */ }
-    .json-number { color: #0000ff; /* blue */ }
-    .json-boolean { color: #ff8c00; /* darkorange */ }
-    .json-null { color: #808080; /* gray */ }
+    .log-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        color: #6c757d;
+        margin-bottom: 6px;
+    }
+    .log-logger {
+        font-weight: bold;
+        color: #495057;
+        background-color: #e9ecef;
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    }
+    .log-message {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #212529;
+        max-height: 2.8em;
+        overflow: hidden;
+        position: relative;
+        transition: max-height 0.3s ease-in-out;
+    }
+    .log-message::after {
+        content: '';
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        height: 1.4em;
+        background: linear-gradient(to bottom, hsla(0, 0%, 100%, 0), hsla(0, 0%, 100%, 1));
+        pointer-events: none;
+        transition: opacity 0.3s;
+    }
+    .log-entry.expanded .log-message { max-height: 1500px; }
+    .log-entry.expanded .log-message::after { opacity: 0; }
+
+    .log-message .traceback {
+        margin-top: 8px; background-color: rgba(0,0,0,0.03); padding: 8px;
+        border-radius: 4px; font-size: 11px; border: 1px solid #ddd;
+    }
+
+    .log-details {
+        display: none;
+        margin-top: 10px; padding-top: 10px; border-top: 1px dashed #dee2e6;
+        font-size: 11px; color: #555; font-family: monospace;
+    }
+    .log-entry.expanded .log-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 4px 15px;
+        word-break: break-all;
+        overflow: hidden;
+    }
+    .log-details > div { min-width: 0; }
+    .log-details strong { color: #333; }
 </style>
 {% endblock %}
 
@@ -68,35 +165,56 @@
     <h1 class="page-title">Logs Viewer</h1>
     <form method="get" id="filter-form">
         <div class="filter-bar">
+            <!-- Main Filters -->
             <div class="form-group">
                 <label for="log_file">Log File:</label>
-                <select id="log_file" name="log_file">
-                    {% for file in log_file_list %}
-                    <option value="{{ file }}" {% if file == selected_log_file %}selected{% endif %}>{{ file }}</option>
-                    {% endfor %}
+                <select id="log_file" name="log_file" class="form-control">
+                    {% for file in log_file_list %}<option value="{{ file }}" {% if file == selected_log_file %}selected{% endif %}>{{ file }}</option>{% endfor %}
                 </select>
             </div>
             <div class="form-group">
                 <label for="group_by">Group By:</label>
-                <select id="group_by" name="group_by">
+                <select id="group_by" name="group_by" class="form-control">
                     <option value="date" {% if group_by == 'date' %}selected{% endif %}>Date</option>
                     <option value="game_id" {% if group_by == 'game_id' %}selected{% endif %}>Game ID</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="filter_game_id">Game ID:</label>
-                <input type="text" id="filter_game_id" name="filter_game_id" value="{{ filter_game_id or '' }}" placeholder="game_...">
+                <input type="text" id="filter_game_id" name="filter_game_id" value="{{ filter_game_id or '' }}" placeholder="game_..." class="form-control">
             </div>
             <div class="form-group">
                 <label for="filter_player_id">Player ID:</label>
-                <input type="text" id="filter_player_id" name="filter_player_id" value="{{ filter_player_id or '' }}" placeholder="e.g., 123">
+                <input type="text" id="filter_player_id" name="filter_player_id" value="{{ filter_player_id or '' }}" placeholder="e.g., 123" class="form-control">
             </div>
             <div class="form-group">
                 <label for="filter_keyword">Keyword:</label>
-                <input type="text" id="filter_keyword" name="filter_keyword" value="{{ filter_keyword or '' }}" placeholder="Any text...">
+                <input type="text" id="filter_keyword" name="filter_keyword" value="{{ filter_keyword or '' }}" placeholder="Any text..." class="form-control">
             </div>
             <button type="submit" class="btn btn-primary">Filter</button>
         </div>
+
+        <!-- NEW: Logger Filter Section -->
+        {% if all_loggers %}
+        <div class="logger-filter-container">
+            <div class="logger-filter-header">
+                <h3>Filter by Logger</h3>
+                <div>
+                    <button type="button" class="btn-link" onclick="toggleAllLoggers(true)">Check All</button>
+                    <button type="button" class="btn-link" onclick="toggleAllLoggers(false)">Uncheck All</button>
+                </div>
+            </div>
+            <div class="logger-checkbox-grid">
+                {% for logger_name in all_loggers %}
+                <label>
+                    <input type="checkbox" name="selected_loggers" value="{{ logger_name }}"
+                           {% if logger_name in selected_loggers %}checked{% endif %}>
+                    {{ logger_name }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </form>
 </div>
 
@@ -106,15 +224,32 @@
     {% elif not logs %}
         <div class="message">No log entries found for the selected filters.</div>
     {% else %}
-        <p>Showing {{ logs|length }} of {{ total_groups }} groups.</p>
+        <p>Showing {{ logs|length }} of {{ total_groups }} groups. Click on a group header or individual log to expand.</p>
         {% for group_key, entries in logs.items() %}
             <div class="log-group">
-                <div class="log-group-header" onclick="toggleGroup(this)">
+                <div class="log-group-header" onclick="toggleGroupContent(this)">
                     {{ group_key }} ({{ entries|length }} entries)
                 </div>
                 <div class="log-group-content">
                     {% for log in entries %}
-                        <pre class="log-entry level-{{ log.level }}">{{ log  tojson }}</pre>
+                        <div class="log-entry level-{{ log.level or 'INFO' }}" onclick="toggleLogDetails(event, this)">
+                            <div class="log-header">
+                                <span class="log-logger">{{ log.logger or 'unknown' }} ({{ log.line or '?' }})</span>
+                                <span class="log-timestamp">{{ log.timestamp }}</span>
+                            </div>
+                            <div class="log-message">
+                                {{ log.message }}
+                                {% if log.exc_info %}
+                                    <pre class="traceback">{{ log.exc_info }}</pre>
+                                {% endif %}
+                            </div>
+                            <div class="log-details">
+                                <div><strong>Function:</strong> <span>{{ log.function or 'N/A' }}</span></div>
+                                <div><strong>Module:</strong> <span>{{ log.module or 'N/A' }}</span></div>
+                                <div><strong>Task Name:</strong> <span>{{ log.taskName or 'N/A' }}</span></div>
+                                <div><strong>Thread Name:</strong> <span>{{ log.thread_name or 'N/A' }}</span></div>
+                            </div>
+                        </div>
                     {% endfor %}
                 </div>
             </div>
@@ -125,16 +260,9 @@
     <div class="pagination">
         {% set query_params = request.query_params.multi_items() | rejectattr('0', 'equalto', 'page') | list %}
         {% set base_url = request.url.path + '?' + query_params|urlencode if query_params else request.url.path + '?' %}
-
-        {% if page > 1 %}
-        <a href="{{ base_url }}&page={{ page - 1 }}">Previous</a>
-        {% endif %}
-
+        {% if page > 1 %}<a href="{{ base_url }}&page={{ page - 1 }}">Previous</a>{% endif %}
         <span class="current">Page {{ page }} of {{ total_pages }}</span>
-
-        {% if page < total_pages %}
-        <a href="{{ base_url }}&page={{ page + 1 }}">Next</a>
-        {% endif %}
+        {% if page < total_pages %}<a href="{{ base_url }}&page={{ page + 1 }}">Next</a>{% endif %}
     </div>
     {% endif %}
 </div>
@@ -142,7 +270,7 @@
 
 {% block scripts %}
 <script>
-    function toggleGroup(headerElement) {
+    function toggleGroupContent(headerElement) {
         const content = headerElement.nextElementSibling;
         if (content.style.display === "block") {
             content.style.display = "none";
@@ -151,46 +279,16 @@
         }
     }
 
-    function syntaxHighlight(json) {
-        if (typeof json != 'string') {
-            json = JSON.stringify(json, undefined, 2);
-        }
-        // 2. Escape HTML characters to prevent XSS
-        jsonString = jsonString.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>');
-        
-        // 3. Apply regex for syntax highlighting
-        return jsonString.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
-            var cls = 'json-number';
-            if (/^"/.test(match)) {
-                if (/:$/.test(match)) {
-                    cls = 'json-key';
-                } else {
-                    cls = 'json-string';
-                }
-            } else if (/true|false/.test(match)) {
-                cls = 'json-boolean';
-            } else if (/null/.test(match)) {
-                cls = 'json-null';
-            }
-            return '<span class="' + cls + '">' + match + '</span>';
-        });
+    function toggleLogDetails(event, entryElement) {
+        event.stopPropagation();
+        entryElement.classList.toggle('expanded');
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        const logEntries = document.querySelectorAll('.log-entry');
-        logEntries.forEach(entry => {
-            try {
-                // The text content is already stringified JSON from the template
-                const jsonObj = JSON.parse(entry.textContent);
-                entry.innerHTML = syntaxHighlight(jsonObj);
-            } catch (e) {
-                // If it fails, leave the original text
-                console.error("Failed to parse log entry for highlighting:", entry.textContent);
-                const safeText = entry.textContent;
-                entry.textContent = ''; // Clear the element
-                entry.appendChild(document.createTextNode(safeText)); // Append as safe text node
-            }
+    // NEW: Function for check/uncheck all
+    function toggleAllLoggers(check) {
+        document.querySelectorAll('input[name="selected_loggers"]').forEach(checkbox => {
+            checkbox.checked = check;
         });
-    });
+    }
 </script>
 {% endblock %}

@@ -111,6 +111,7 @@ async def view_system_logs(
     filter_game_id: Optional[str] = Query(None),
     filter_player_id: Optional[str] = Query(None),
     filter_keyword: Optional[str] = Query(None),
+    selected_loggers: Optional[List[str]] = Query(None),
     page: int = Query(1, ge=1),
     current_user: UserPublic = Depends(deps.get_current_admin_user)
 ):
@@ -118,40 +119,54 @@ async def view_system_logs(
     log_dir = pathlib.Path("logs")
     selected_file_path = log_dir / log_file
     
-    logs_data = []
+    all_log_entries = []
     error_message = None
+    all_loggers = set()
 
     if not selected_file_path.exists():
         error_message = f"Log file not found: {log_file}"
     else:
         with open(selected_file_path, 'r', encoding='utf8') as f:
-            for line in reversed(list(f)): # Read newest first
+            for line in f: # Read all lines
                 try:
                     log_entry = json.loads(line)
-                    
-                    # --- Filtering Logic ---
-                    msg = log_entry.get("message", "")
-                    
-                    if filter_keyword and filter_keyword.lower() not in str(log_entry).lower():
-                        continue
-                    if filter_game_id and (filter_game_id not in msg):
-                        continue
-                    if filter_player_id and (f"P:{filter_player_id}" not in msg and f"player_id_of_this_connection': {filter_player_id}" not in str(log_entry)):
-                        continue
-                        
-                    logs_data.append(log_entry)
+                    all_log_entries.append(log_entry)
+                    if log_entry.get("logger"):
+                        all_loggers.add(log_entry.get("logger"))
                 except json.JSONDecodeError:
-                    # Handle lines that are not valid JSON
-                    logs_data.append({"level": "INTERNAL", "message": f"Could not parse line: {line}", "timestamp": datetime.datetime.now().isoformat()})
+                    all_log_entries.append({"level": "INTERNAL", "message": f"Could not parse line: {line}", "timestamp": datetime.datetime.now().isoformat()})
+
+    all_log_entries.reverse() # Show newest first
+
+    # --- Filtering Logic ---
+    if selected_loggers is None:
+        # If no selection is made (first load), treat all as selected
+        selected_loggers = list(all_loggers)
+
+    filtered_logs = []
+    for log in all_log_entries:
+        msg = log.get("message", "")
+        
+        # Apply filters
+        if log.get("logger") not in selected_loggers:
+            continue
+        if filter_keyword and filter_keyword.lower() not in str(log).lower():
+            continue
+        if filter_game_id and (filter_game_id not in msg):
+            continue
+        if filter_player_id and (f"P:{filter_player_id}" not in msg and f"player_id_of_this_connection': {filter_player_id}" not in str(log)):
+            continue
+            
+        filtered_logs.append(log)
 
     # --- Grouping Logic ---
     grouped_logs = defaultdict(list)
     if group_by == 'date':
-        for log in logs_data:
+        for log in filtered_logs:
             date_key = log.get("timestamp", "nodate")[:10]
             grouped_logs[date_key].append(log)
     elif group_by == 'game_id':
-        for log in logs_data:
+        for log in filtered_logs:
             game_id = _extract_game_id_from_log(log.get("message", "")) or "No Game ID"
             grouped_logs[game_id].append(log)
     
@@ -171,13 +186,13 @@ async def view_system_logs(
         "logs": paginated_logs,
         "error_message": error_message,
         "log_file_list": ["app_debug.jsonl", "app_info.jsonl", "app_error.jsonl"],
-        # Pass filters back to template
+        "all_loggers": sorted(list(all_loggers)), # Pass sorted list of unique loggers
+        "selected_loggers": selected_loggers, # Pass back the user's selection
         "selected_log_file": log_file,
         "group_by": group_by,
         "filter_game_id": filter_game_id,
         "filter_player_id": filter_player_id,
         "filter_keyword": filter_keyword,
-        # Pagination
         "page": page,
         "total_pages": total_pages,
         "total_groups": total_groups,

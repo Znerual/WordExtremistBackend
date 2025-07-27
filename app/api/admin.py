@@ -136,7 +136,6 @@ async def view_system_logs(
                 except json.JSONDecodeError:
                     all_log_entries.append({"level": "INTERNAL", "message": f"Could not parse line: {line}", "timestamp": datetime.datetime.now().isoformat()})
 
-    all_log_entries.reverse() # Show newest first
 
     # --- Filtering Logic ---
     if selected_loggers is None:
@@ -171,7 +170,8 @@ async def view_system_logs(
             grouped_logs[game_id].append(log)
     
     # --- Pagination Logic ---
-    group_keys = list(grouped_logs.keys())
+    group_keys = sorted(list(grouped_logs.keys()), reverse=True)
+    
     total_groups = len(group_keys)
     total_pages = math.ceil(total_groups / LOGS_PER_PAGE)
     start_index = (page - 1) * LOGS_PER_PAGE
